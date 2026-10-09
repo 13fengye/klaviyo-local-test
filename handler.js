@@ -160,6 +160,7 @@ export default async (req, res) => {
                                             email: email,
                                             phoneNumber: subscriptions.sms ? phone_number : null,
                                             subscriptions,
+                                            
                                         },
                                     },
                                 ],
@@ -534,10 +535,44 @@ export default async (req, res) => {
 
         case 'order.completed': {
             const isRefund = data.order.refund_sources.length > 0;
-            const productType = data.order.order_lines[0].product.product_type;
+            const product = data.order.order_lines[0].product;
+            const productType = product.product_type;
 
             if (isRefund || productType !== 'Credits') {
                 break;
+            }
+
+            const packageData = await marianaTekFetcher("packages/" + product.id);
+            const { expiration_interval, expiration_interval_length } = packageData?.data?.attributes ?? {};
+            let orderDatetime = data.order.order_datetime;
+            let expiryDate = null;
+
+            if (
+                ['DY', 'WK', 'MO', 'YR'].includes(expiration_interval) &&
+                Number.isInteger(expiration_interval_length) &&
+                expiration_interval_length >= 0
+            ) {
+                const date = new Date(orderDatetime);
+
+                if (!Number.isNaN(date.getTime())) {
+                    if (expiration_interval === 'DY' || expiration_interval === 'WK') {
+                        const days = expiration_interval_length * (expiration_interval === 'WK' ? 7 : 1);
+                        date.setUTCDate(date.getUTCDate() + days);
+                    } else {
+                        // Clamp month/year additions to the last day of the target month.
+                        const originalDay = date.getUTCDate();
+                        const months = expiration_interval_length * (expiration_interval === 'YR' ? 12 : 1);
+                        date.setUTCDate(1);
+                        date.setUTCMonth(date.getUTCMonth() + months);
+                        const lastDay = new Date(date.getTime());
+                        lastDay.setUTCMonth(lastDay.getUTCMonth() + 1, 0);
+                        date.setUTCDate(Math.min(originalDay, lastDay.getUTCDate()));
+                    }
+
+                    if (!Number.isNaN(date.getTime())) {
+                        expiryDate = date;
+                    }
+                }
             }
 
             const orderLine = data.order.order_lines[0];
@@ -559,6 +594,7 @@ export default async (req, res) => {
                                 name: orderLine.product.name,
                                 price: orderLine.line_total,
                                 id: orderLine.product.id,
+                                expiryDate,
                             },
                             value: orderLine.line_total,
                             valueCurrency: data.order.currency,
