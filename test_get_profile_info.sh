@@ -7,6 +7,6 @@ curl -X POST http://localhost:3000/api/events \
     "tenant": "uk",
     "event_datetime": "2026-10-09T12:00:00Z",
     "customer": {
-      "email": "zhentong+8@leisurelabs.co.uk"
+      "email": "zhentong+9@leisurelabs.co.uk"
     }
   }'

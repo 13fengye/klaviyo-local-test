@@ -1,4 +1,4 @@
-import { ConfigWrapper, Events, Profiles } from "klaviyo-api";
+import { ConfigWrapper, Events, Profiles, FilterBuilder } from "klaviyo-api";
 import { object, string, number, boolean, array, mixed } from 'yup';
 
 
@@ -17,13 +17,14 @@ export default async (req, res) => {
         );
     }
 
-    let data;
+    let data, responseData;
 
     try {
         const result = await requestBodySchema.validate(req.body);
 
         data = result;
     } catch (e) {
+        console.log(e);
         const errorObject = {
             message: `PROD: ` + e.errors + `\n`,
             dt: Math.floor(Date.now() / 1000)
@@ -179,6 +180,44 @@ export default async (req, res) => {
 
                 // @ts-expect-error - This is a valid response
                 return res.json(errorObject).status(200);
+            }
+
+            break;
+        }
+
+        case 'profile.get_user_info': {
+            const email = data.customer?.email || data.custom_data?.customer?.email;
+
+            if (!email || typeof email !== 'string') {
+                return res.status(400).json({
+                    event_name: data.action,
+                    message: 'Email parameter is missing or invalid',
+                });
+            }
+
+            try {
+                const filter = new FilterBuilder().equals('email', email).build();
+                const response = await Profiles.getProfiles({
+                    filter,
+                    additionalFieldsProfile: ['subscriptions'],
+                });
+                const profiles = response.body.data;
+
+                if (!profiles || profiles.length === 0) {
+                    responseData = { profile_found: false };
+                } else {
+                    responseData = formatKlaviyoProfile(profiles[0]);
+                }
+            } catch (e) {
+                const errorObject = {
+                    event_name: data.action,
+                    message: e.message,
+                    errors: e.response?.data?.errors || e.body?.errors,
+                };
+
+                console.error(JSON.stringify(errorObject, null, 2));
+
+                return res.status(200).json(errorObject);
             }
 
             break;
@@ -751,7 +790,7 @@ export default async (req, res) => {
             throw new Error('Unsupported Event');
     }
 
-    res.json({ success: true }).status(200);
+    res.json({ success: true, data: responseData }).status(200);
 };
 
 /**
@@ -790,6 +829,50 @@ async function marianaTekFetcher(path) {
 
 }
 
+function formatKlaviyoProfile(rawProfile) {
+    const attributes = rawProfile.attributes || {};
+    const rawSub = attributes.subscriptions || {};
+
+    const mapSubChannel = (channelData, canReceiveKey) => {
+        if (!channelData || !channelData.consent || channelData.consent === 'NEVER_SUBSCRIBED') {
+            return null;
+        }
+        return {
+            consent: channelData.consent,
+            can_receive: channelData[canReceiveKey] ?? false,
+        };
+    };
+
+    return {
+        profile_found: true,
+        profile: {
+            id: rawProfile.id,
+            external_id: attributes.external_id || null,
+            email: attributes.email || null,
+            phone_number: attributes.phone_number || null,
+        },
+        subscriptions: {
+            email: {
+                marketing: mapSubChannel(rawSub.email?.marketing, 'canReceiveEmailMarketing'),
+            },
+            sms: {
+                marketing: mapSubChannel(rawSub.sms?.marketing, 'canReceiveSmsMarketing'),
+                transactional: mapSubChannel(rawSub.sms?.transactional, 'canReceiveSmsTransactional'),
+            },
+            whatsapp: {
+                marketing: rawSub.whatsapp?.marketing ? {
+                    consent: rawSub.whatsapp.marketing.consent,
+                    can_receive: rawSub.whatsapp.marketing.canReceive ?? false,
+                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phone_number || null,
+                } : null,
+                transactional: rawSub.whatsapp?.transactional || null,
+                conversational: rawSub.whatsapp?.conversational || null,
+            },
+        },
+        properties: attributes.properties || {},
+    };
+}
+
 /**
  * This is a temporary workaround to create custom objects in Klaviyo. 
  * Once the package in NapkinIO is updated we will not need this anymmore.
@@ -805,6 +888,10 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
         case 'profile.created': {
             user_id = data.profile.id;
             user_email = data.profile.email;
+
+            break;
+        }
+        case "profile.get_user_info": {
 
             break;
         }
@@ -1213,11 +1300,18 @@ const preOrderData = object({
     }).required()
 })
 
+const customData = object({
+    customer: object({
+        email: string().email().nullable(),
+    }).required()
+})
+
 
 const requestBodySchema = object({
     action: mixed()
         .oneOf([
             'profile.created',
+            "profile.get_user_info",
             'reservation.created',
             'reservation.checkedin',
             'reservation.cancelled',
@@ -1300,6 +1394,21 @@ const requestBodySchema = object({
         }
 
         if (action === 'order.completed_preorder') {
+            return schema.required();
+        } else {
+            return schema.strip();
+        }
+    }),
+    custom_data: customData.when('action', (action, schema) => {
+        if (typeof action !== 'string') {
+            throw new Error('Invalid action');
+        }
+
+        if (
+            [
+                'profile.get_user_info',
+            ].includes(action)
+        ) {
             return schema.required();
         } else {
             return schema.strip();
