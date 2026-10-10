@@ -292,12 +292,6 @@ export default async (req, res) => {
                 };
 
                 await Profiles.bulkSubscribeProfiles(payload);
-
-                responseData = {
-                    subscribed: true,
-                    email,
-                    channels: activeChannels,
-                };
             } catch (e) {
                 const errorObject = {
                     event_name: data.action,
@@ -376,12 +370,6 @@ export default async (req, res) => {
                 };
 
                 await Profiles.bulkUnsubscribeProfiles(payload);
-
-                responseData = {
-                    unsubscribed: true,
-                    email,
-                    channels: activeChannels,
-                };
             } catch (e) {
                 const errorObject = {
                     event_name: data.action,
