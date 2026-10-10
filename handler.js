@@ -55,11 +55,18 @@ export default async (req, res) => {
 
     ConfigWrapper(process.env["KLAVIYO_PRIVATE_API_KEY"]);
 
+    const customProfileActions = [
+        'profile.get_user_info',
+        'profile.unsubscribe_marketing',
+        'profile.subscribe_marketing',
+    ];
 
-    /**
-     * Create or Update Membership or Package Data Records
-     */
-    await createAndUpdateMemberhipOrPackageRecords(data);
+    if (data.action && !customProfileActions.includes(data.action)) {
+        /**
+         * Create or Update Membership or Package Data Records
+         */
+        await createAndUpdateMemberhipOrPackageRecords(data);
+    }
 
     switch (data.action) {
         case 'profile.created': {
@@ -186,7 +193,7 @@ export default async (req, res) => {
         }
 
         case 'profile.get_user_info': {
-            const email = data.customer?.email || data.custom_data?.customer?.email;
+            const email = data.customer?.email;
 
             if (!email || typeof email !== 'string') {
                 return res.status(400).json({
@@ -218,6 +225,174 @@ export default async (req, res) => {
                 console.error(JSON.stringify(errorObject, null, 2));
 
                 return res.status(200).json(errorObject);
+            }
+
+            break;
+        }
+
+        case 'profile.subscribe_marketing': {
+            const email = data.subscribe_data?.customer?.email;
+            const channels = data.subscribe_data?.channels;
+
+            const validChannels = ['email', 'whatsapp'];
+            const activeChannels = Array.isArray(channels)
+                ? channels.filter((channel) => validChannels.includes(channel))
+                : [];
+
+            if (!email || typeof email !== 'string') {
+                return res.status(400).json({
+                    event_name: data.action,
+                    message: 'Email parameter is missing or invalid',
+                });
+            }
+
+            if (activeChannels.length === 0) {
+                return res.status(400).json({
+                    event_name: data.action,
+                    message: 'At least one valid channel ("email", "whatsapp") is required',
+                });
+            }
+
+            try {
+                const subscriptions = {};
+
+                if (activeChannels.includes('email')) {
+                    subscriptions.email = {
+                        marketing: {
+                            consent: 'SUBSCRIBED',
+                        },
+                    };
+                }
+
+                if (activeChannels.includes('whatsapp')) {
+                    subscriptions.whatsapp = {
+                        marketing: {
+                            consent: 'SUBSCRIBED',
+                        },
+                    };
+                }
+
+                const payload = {
+                    data: {
+                        type: 'profile-subscription-bulk-create-job',
+                        attributes: {
+                            profiles: {
+                                data: [
+                                    {
+                                        type: 'profile',
+                                        attributes: {
+                                            email,
+                                            subscriptions,
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                };
+
+                await Profiles.bulkSubscribeProfiles(payload);
+
+                responseData = {
+                    subscribed: true,
+                    email,
+                    channels: activeChannels,
+                };
+            } catch (e) {
+                const errorObject = {
+                    event_name: data.action,
+                    message: e.message,
+                    errors: e.response?.data?.errors || e.body?.errors,
+                };
+
+                console.error(JSON.stringify(errorObject, null, 2));
+
+                // @ts-expect-error - This is a valid response
+                return res.json(errorObject).status(200);
+            }
+
+            break;
+        }
+
+        case 'profile.unsubscribe_marketing': {
+            const email = data.unsubscribe_data?.customer?.email;
+            const channels = data.unsubscribe_data?.channels;
+
+            const validChannels = ['email', 'whatsapp'];
+            const activeChannels = Array.isArray(channels)
+                ? channels.filter((channel) => validChannels.includes(channel))
+                : [];
+
+            if (!email || typeof email !== 'string') {
+                return res.status(400).json({
+                    event_name: data.action,
+                    message: 'Email parameter is missing or invalid',
+                });
+            }
+
+            if (activeChannels.length === 0) {
+                return res.status(400).json({
+                    event_name: data.action,
+                    message: 'At least one valid channel ("email", "whatsapp") is required',
+                });
+            }
+
+            try {
+                const subscriptions = {};
+
+                if (activeChannels.includes('email')) {
+                    subscriptions.email = {
+                        marketing: {
+                            consent: 'UNSUBSCRIBED'
+                        } 
+                    };
+                }
+
+                if (activeChannels.includes('whatsapp')) {
+                    subscriptions.whatsapp = {
+                        marketing: {
+                            consent: 'UNSUBSCRIBED'
+                        }
+                    };
+                }
+
+                const payload = {
+                    data: {
+                        type: 'profile-subscription-bulk-delete-job',
+                        attributes: {
+                            profiles: {
+                                data: [
+                                    {
+                                        type: 'profile',
+                                        attributes: {
+                                            email,
+                                            subscriptions,
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                };
+
+                await Profiles.bulkUnsubscribeProfiles(payload);
+
+                responseData = {
+                    unsubscribed: true,
+                    email,
+                    channels: activeChannels,
+                };
+            } catch (e) {
+                const errorObject = {
+                    event_name: data.action,
+                    message: e.message,
+                    errors: e.response?.data?.errors || e.body?.errors,
+                };
+
+                console.error(JSON.stringify(errorObject, null, 2));
+
+                // @ts-expect-error - This is a valid response
+                return res.json(errorObject).status(200);
             }
 
             break;
@@ -855,10 +1030,6 @@ function formatKlaviyoProfile(rawProfile) {
             email: {
                 marketing: mapSubChannel(rawSub.email?.marketing, 'canReceiveEmailMarketing'),
             },
-            sms: {
-                marketing: mapSubChannel(rawSub.sms?.marketing, 'canReceiveSmsMarketing'),
-                transactional: mapSubChannel(rawSub.sms?.transactional, 'canReceiveSmsTransactional'),
-            },
             whatsapp: {
                 marketing: rawSub.whatsapp?.marketing ? {
                     consent: rawSub.whatsapp.marketing.consent,
@@ -892,6 +1063,14 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
             break;
         }
         case "profile.get_user_info": {
+
+            break;
+        }
+        case "profile.subscribe_marketing": {
+
+            break;
+        }
+        case "profile.unsubscribe_marketing": {
 
             break;
         }
@@ -1300,11 +1479,24 @@ const preOrderData = object({
     }).required()
 })
 
-const customData = object({
-    customer: object({
-        email: string().email().nullable(),
-    }).required()
-})
+const customerSchema = object({
+    email: string().email('Invalid email format').required('Email is required'),
+});
+
+const channelsSchema = array()
+    .of(string().oneOf(['email', 'whatsapp'], 'Invalid channel'))
+    .min(1, 'At least one valid channel is required')
+    .required('Channels are required');
+
+const subscribeSchema = object({
+    customer: customerSchema,
+    channels: channelsSchema,
+});
+
+const unsubscribeSchema = object({
+    customer: customerSchema,
+    channels: channelsSchema,
+});
 
 
 const requestBodySchema = object({
@@ -1312,6 +1504,8 @@ const requestBodySchema = object({
         .oneOf([
             'profile.created',
             "profile.get_user_info",
+            "profile.subscribe_marketing",
+            "profile.unsubscribe_marketing",
             'reservation.created',
             'reservation.checkedin',
             'reservation.cancelled',
@@ -1399,19 +1593,37 @@ const requestBodySchema = object({
             return schema.strip();
         }
     }),
-    custom_data: customData.when('action', (action, schema) => {
+    customer: customerSchema.when('action', (action, schema) => {
         if (typeof action !== 'string') {
             throw new Error('Invalid action');
         }
 
-        if (
-            [
-                'profile.get_user_info',
-            ].includes(action)
-        ) {
+        if (action === 'profile.get_user_info') {
             return schema.required();
-        } else {
-            return schema.strip();
         }
+
+        return schema.strip();
+    }),
+    subscribe_data: subscribeSchema.when('action', (action, schema) => {
+        if (typeof action !== 'string') {
+            throw new Error('Invalid action');
+        }
+
+        if (action === 'profile.subscribe_marketing') {
+            return schema.required();
+        }
+
+        return schema.strip();
+    }),
+    unsubscribe_data: unsubscribeSchema.when('action', (action, schema) => {
+        if (typeof action !== 'string') {
+            throw new Error('Invalid action');
+        }
+
+        if (action === 'profile.unsubscribe_marketing') {
+            return schema.required();
+        }
+
+        return schema.strip();
     }),
 });
