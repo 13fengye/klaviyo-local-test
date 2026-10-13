@@ -10,6 +10,7 @@ curl -X POST http://localhost:3000/api/events \
       "customer": {
         "email": "zhentong+9@leisurelabs.co.uk"
       },
-      "channels": ["email"]
+      "channels": ["email", "whatsapp"],
+      "phone_number":"+12334"
     }
   }'

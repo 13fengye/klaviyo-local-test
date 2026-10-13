@@ -233,6 +233,7 @@ export default async (req, res) => {
         case 'profile.subscribe_marketing': {
             const email = data.subscribe_data?.customer?.email;
             const channels = data.subscribe_data?.channels;
+            const phoneNumber = data.subscribe_data?.phone_number;
 
             const validChannels = ['email', 'whatsapp'];
             const activeChannels = Array.isArray(channels)
@@ -266,9 +267,12 @@ export default async (req, res) => {
 
                 if (activeChannels.includes('whatsapp')) {
                     subscriptions.whatsapp = {
-                        marketing: {
-                            consent: 'SUBSCRIBED',
-                        },
+                        marketing: { 
+                            consent: 'SUBSCRIBED', 
+                        }, 
+                        transactional: { 
+                            consent: 'SUBSCRIBED', 
+                        } 
                     };
                 }
 
@@ -282,6 +286,7 @@ export default async (req, res) => {
                                         type: 'profile',
                                         attributes: {
                                             email,
+                                            phoneNumber: subscriptions.whatsapp ? phoneNumber : null,
                                             subscriptions,
                                         },
                                     },
@@ -311,6 +316,7 @@ export default async (req, res) => {
         case 'profile.unsubscribe_marketing': {
             const email = data.unsubscribe_data?.customer?.email;
             const channels = data.unsubscribe_data?.channels;
+            const phoneNumber = data.unsubscribe_data?.phone_number;
 
             const validChannels = ['email', 'whatsapp'];
             const activeChannels = Array.isArray(channels)
@@ -346,7 +352,10 @@ export default async (req, res) => {
                     subscriptions.whatsapp = {
                         marketing: {
                             consent: 'UNSUBSCRIBED'
-                        }
+                        },
+                        transactional: { 
+                            consent: 'UNSUBSCRIBED', 
+                        } 
                     };
                 }
 
@@ -360,6 +369,7 @@ export default async (req, res) => {
                                         type: 'profile',
                                         attributes: {
                                             email,
+                                            phoneNumber: subscriptions.whatsapp ? phoneNumber : null,
                                             subscriptions,
                                         },
                                     },
@@ -1479,11 +1489,13 @@ const channelsSchema = array()
 const subscribeSchema = object({
     customer: customerSchema,
     channels: channelsSchema,
+    phone_number: string().optional().nullable(),
 });
 
 const unsubscribeSchema = object({
     customer: customerSchema,
     channels: channelsSchema,
+    phone_number: string().optional().nullable(),
 });
 
 
