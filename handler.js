@@ -1025,6 +1025,7 @@ async function getMembershipCustomProperties(reservationId) {
             const allowance = attrs.usage_interval_limit ?? 0;
             const remaining = attrs.last_interval_remaining_usage_count ?? 0;
             const sessionsUsed = allowance - remaining;
+            const isUnlimited = allowance >= 28;
 
             const safeDate = (str) => {
                 if (!str) return null;
@@ -1035,23 +1036,34 @@ async function getMembershipCustomProperties(reservationId) {
             const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
             const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
             const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date || data?.event_datetime);
+
             let daysElapsed = 0;
+            let timeElapsedPct = 0;
             if (cycleStartDate && checkInDate) {
-                daysElapsed = Math.max(0, Math.floor((checkInDate.getTime() - cycleStartDate.getTime()) / (1000 * 60 * 60 * 24)));
+                const elapsedMs = Math.max(0, checkInDate.getTime() - cycleStartDate.getTime());
+                daysElapsed = Math.floor(elapsedMs / (1000 * 60 * 60 * 24));
+
+                const totalCycleMs = (cycleEndDate && cycleEndDate > cycleStartDate)
+                    ? (cycleEndDate.getTime() - cycleStartDate.getTime())
+                    : (30 * 24 * 60 * 60 * 1000);
+
+                timeElapsedPct = Math.min(100, Math.round((elapsedMs / totalCycleMs) * 100));
             }
 
             const usagePct = allowance > 0 ? (sessionsUsed / allowance) : 0;
+            const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
 
             custom_properties = {
                 membership_instance_name: attrs.membership_name,
                 current_cycle_start_date: cycleStartDate,
                 current_cycle_end_date: cycleEndDate,
-                current_cycle_days_elapsed: daysElapsed,
+                cycle_days_elapsed: daysElapsed,
+                cycle_elapsed_percentage: timeElapsedPct,
                 session_allowance: allowance,
                 sessions_remaining: remaining,
                 session_count: sessionsUsed,
-                session_used_pct: Math.round(usagePct * 100),
-                is_unlimited: allowance >= 28,
+                session_usage_percentage: sessionUsedPct,
+                is_unlimited: isUnlimited,
                 commitment_length: commitment_length
             };
         }

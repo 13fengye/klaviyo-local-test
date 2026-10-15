@@ -5,7 +5,7 @@ curl -X POST http://localhost:3000/api/events \
   -d '{
   "action": "test",
   "reservation": {
-    "id": 14351592,
+    "id": 14323135,
     "type": "reservation",
     "class_session": {
       "id": 6573,
