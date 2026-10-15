@@ -1045,7 +1045,7 @@ async function getMembershipCustomProperties(reservationId) {
 
                 const totalCycleMs = (cycleEndDate && cycleEndDate > cycleStartDate)
                     ? (cycleEndDate.getTime() - cycleStartDate.getTime())
-                    : (30 * 24 * 60 * 60 * 1000);
+                    : (31 * 24 * 60 * 60 * 1000);
 
                 timeElapsedPct = Math.min(100, Math.round((elapsedMs / totalCycleMs) * 100));
             }
