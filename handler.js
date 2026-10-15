@@ -55,7 +55,7 @@ export default async (req, res) => {
 
     ConfigWrapper(process.env["KLAVIYO_PRIVATE_API_KEY"]);
 
-    const customProfileActions = [
+    const customActions = [
         'profile.get_user_info',
         'profile.unsubscribe_marketing',
         'profile.subscribe_marketing',
@@ -64,7 +64,7 @@ export default async (req, res) => {
         'order.preordered_product',
     ];
 
-    if (data.action && !customProfileActions.includes(data.action)) {
+    if (data.action && !customActions.includes(data.action)) {
         /**
          * Create or Update Membership or Package Data Records
          */
