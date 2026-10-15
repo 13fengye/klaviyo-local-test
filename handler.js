@@ -1021,6 +1021,7 @@ async function getMembershipCustomProperties(reservationId) {
         if (membership_instance) {
             const attrs = membership_instance.attributes;
             const cycle = attrs.billing_cycles?.[0];
+            const commitment_length = attrs.commitment_length ?? 0;
             const allowance = attrs.usage_interval_limit ?? 0;
             const remaining = attrs.last_interval_remaining_usage_count ?? 0;
             const sessionsUsed = allowance - remaining;
@@ -1050,7 +1051,8 @@ async function getMembershipCustomProperties(reservationId) {
                 sessions_remaining: remaining,
                 session_count: sessionsUsed,
                 session_used_pct: Math.round(usagePct * 100),
-                is_unlimited: allowance >= 28
+                is_unlimited: allowance >= 28,
+                commitment_length: commitment_length
             };
         }
     } catch (e) {
