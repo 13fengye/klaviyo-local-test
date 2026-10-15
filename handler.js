@@ -466,6 +466,11 @@ export default async (req, res) => {
             const membership_payment = reservation.membership_payments[0];
             const credit_payment = reservation.credit_payments[0];
 
+            let custom_properties = {};
+            if (membership_payment) {
+                custom_properties = await getMembershipCustomProperties(reservation.id);
+            }
+
             try {
                 await Events.createEvent({
                     data: {
@@ -488,7 +493,9 @@ export default async (req, res) => {
                                 reservation_id: reservation.id,
                                 class_session_id: reservation.class_session.id,
                                 package_name: credit_payment ? credit_payment.package_name : undefined,
-                                membership_name: membership_payment ? membership_payment.name : undefined
+                                membership_name: membership_payment ? membership_payment.name : undefined,
+
+                                ...custom_properties
                             },
                             profile: {
                                 data: {
@@ -1000,6 +1007,57 @@ async function marianaTekFetcher(path) {
         return null;
     }
 
+}
+
+async function getMembershipCustomProperties(reservationId) {
+    let custom_properties = {};
+
+    try {
+        const reservationData = await marianaTekFetcher(
+            `reservations/${reservationId}/?include=membership_transactions.membership_instance`
+        );
+
+        const membership_instance = reservationData?.included?.find(item => item.type === 'membership_instances');
+        if (membership_instance) {
+            const attrs = membership_instance.attributes;
+            const cycle = attrs.billing_cycles?.[0];
+            const allowance = attrs.usage_interval_limit ?? 0;
+            const remaining = attrs.last_interval_remaining_usage_count ?? 0;
+            const sessionsUsed = allowance - remaining;
+
+            const safeDate = (str) => {
+                if (!str) return null;
+                const d = new Date(str.replace(' ', 'T'));
+                return isNaN(d.getTime()) ? null : d;
+            };
+
+            const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
+            const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
+            const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date || data?.event_datetime);
+            let daysElapsed = 0;
+            if (cycleStartDate && checkInDate) {
+                daysElapsed = Math.max(0, Math.floor((checkInDate.getTime() - cycleStartDate.getTime()) / (1000 * 60 * 60 * 24)));
+            }
+
+            const usagePct = allowance > 0 ? (sessionsUsed / allowance) : 0;
+
+            custom_properties = {
+                membership_instance_name: attrs.membership_name,
+                current_cycle_start_date: cycleStartDate,
+                current_cycle_end_date: cycleEndDate,
+                current_cycle_days_elapsed: daysElapsed,
+                session_allowance: allowance,
+                sessions_remaining: remaining,
+                session_count: sessionsUsed,
+                session_used_pct: Math.round(usagePct * 100),
+                is_unlimited: allowance >= 28
+            };
+        }
+    } catch (e) {
+        console.error("Failed to get membership custom properties => ", e);
+    }
+
+    return custom_properties;
 }
 
 function formatKlaviyoProfile(rawProfile) {
