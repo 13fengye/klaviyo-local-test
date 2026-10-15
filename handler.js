@@ -59,6 +59,9 @@ export default async (req, res) => {
         'profile.get_user_info',
         'profile.unsubscribe_marketing',
         'profile.subscribe_marketing',
+
+        'order.completed_preorder',
+        'order.preordered_product',
     ];
 
     if (data.action && !customProfileActions.includes(data.action)) {
