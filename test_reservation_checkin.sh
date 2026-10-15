@@ -114,7 +114,7 @@ curl -X POST http://localhost:3000/api/events \
             "location_id": "48725"
           }
         ],
-        "email": "uzunhasandeniz@gmail.com",
+        "email": "zhentong@leisurelabs.co.uk",
         "emergency_contact_email": null,
         "emergency_contact_name": null,
         "emergency_contact_phone": null,
@@ -199,7 +199,7 @@ curl -X POST http://localhost:3000/api/events \
             "location_id": "48725"
           }
         ],
-        "email": "uzunhasandeniz@gmail.com",
+        "email": "zhentong@leisurelabs.co.uk",
         "emergency_contact_email": null,
         "emergency_contact_name": null,
         "emergency_contact_phone": null,
