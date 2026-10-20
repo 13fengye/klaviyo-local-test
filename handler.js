@@ -150,11 +150,16 @@ export default async (req, res) => {
                 };
             }
 
+            // Considering that WhatsApp does not have field hosting, we will use SMS fields instead,
+            // which means that SMS services will not be enabled in the future. 
             if (is_opted_in_to_sms == true) {
-                subscriptions.sms = {
-                    marketing: {
-                        consent: 'SUBSCRIBED',
-                    },
+                subscriptions.whatsapp = {
+                    marketing: { 
+                        consent: 'SUBSCRIBED', 
+                    }, 
+                    transactional: { 
+                        consent: 'SUBSCRIBED', 
+                    } 
                 };
             }
 
@@ -169,7 +174,7 @@ export default async (req, res) => {
                                         type: 'profile',
                                         attributes: {
                                             email: email,
-                                            phoneNumber: subscriptions.sms ? phone_number : null,
+                                            phoneNumber: subscriptions.whatsapp ? phone_number : null,
                                             subscriptions,
                                             
                                         },
