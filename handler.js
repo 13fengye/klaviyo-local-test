@@ -1022,7 +1022,7 @@ async function getMembershipCustomProperties(reservationId) {
 
     try {
         const reservationData = await marianaTekFetcher(
-            `reservations/${reservationId}/?include=membership_transactions.membership_instance`
+            `reservations/${reservationId}?include=membership_transactions.membership_instance`
         );
 
         const membership_instance = reservationData?.included?.find(item => item.type === 'membership_instances');
