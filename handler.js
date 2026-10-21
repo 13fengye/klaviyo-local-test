@@ -1030,7 +1030,7 @@ const toDayMs = (d) => {
     return new Date(d.toISOString().slice(0, 10)).getTime();
 };
 
- const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 async function getMembershipCustomProperties(reservationId) {
     let custom_properties = {};
