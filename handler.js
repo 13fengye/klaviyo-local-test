@@ -477,6 +477,8 @@ export default async (req, res) => {
             let custom_properties = {};
             if (membership_payment) {
                 custom_properties = await getMembershipCustomProperties(reservation.id);
+            } else if (credit_payment) {
+                custom_properties = await getPackageCustomProperties(reservation.id);
             }
 
             try {
@@ -1017,6 +1019,19 @@ async function marianaTekFetcher(path) {
 
 }
 
+const safeDate = (str) => {
+    if (!str) return null;
+    const d = new Date(typeof str === 'string' ? str.replace(' ', 'T') : str);
+    return isNaN(d.getTime()) ? null : d;
+};
+
+const toDayMs = (d) => {
+    if (!d) return null;
+    return new Date(d.toISOString().slice(0, 10)).getTime();
+};
+
+ const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
 async function getMembershipCustomProperties(reservationId) {
     let custom_properties = {};
 
@@ -1035,33 +1050,32 @@ async function getMembershipCustomProperties(reservationId) {
             const sessionsUsed = allowance - remaining;
             const isUnlimited = allowance >= 28;
 
-            const safeDate = (str) => {
-                if (!str) return null;
-                const d = new Date(str.replace(' ', 'T'));
-                return isNaN(d.getTime()) ? null : d;
-            };
-
             const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
             const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
-            const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date || data?.event_datetime);
+            const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date);
 
             let daysElapsed = 0;
             let timeElapsedPct = 0;
+
             if (cycleStartDate && checkInDate) {
-                const elapsedMs = Math.max(0, checkInDate.getTime() - cycleStartDate.getTime());
-                daysElapsed = Math.floor(elapsedMs / (1000 * 60 * 60 * 24));
+                const startDayMs = toDayMs(cycleStartDate);
+                const endDayMs = toDayMs(cycleEndDate);
+                const checkInDayMs = toDayMs(checkInDate);
 
-                const totalCycleMs = (cycleEndDate && cycleEndDate > cycleStartDate)
-                    ? (cycleEndDate.getTime() - cycleStartDate.getTime())
-                    : (31 * 24 * 60 * 60 * 1000);
+                daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
 
-                timeElapsedPct = Math.min(100, Math.round((elapsedMs / totalCycleMs) * 100));
+                const totalDays = (cycleEndDate && cycleEndDate > cycleStartDate)
+                    ? Math.round((endDayMs - startDayMs) / MS_PER_DAY)
+                    : 31;
+
+                timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
             }
 
             const usagePct = allowance > 0 ? (sessionsUsed / allowance) : 0;
             const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
 
             custom_properties = {
+                type: 'membership',
                 membership_instance_name: attrs.membership_name,
                 current_cycle_start_date: cycleStartDate,
                 current_cycle_end_date: cycleEndDate,
@@ -1077,6 +1091,66 @@ async function getMembershipCustomProperties(reservationId) {
         }
     } catch (e) {
         console.error("Failed to get membership custom properties => ", e);
+    }
+
+    return custom_properties;
+}
+
+async function getPackageCustomProperties(reservationId, fallbackRemaining) {
+    let custom_properties = {};
+
+    try {
+        const reservationData = await marianaTekFetcher(
+            `reservations/${reservationId}?include=credit_transactions`
+        );
+
+        const creditTransaction = reservationData?.included?.find(item => item.type === 'credit_transactions');
+        const parentCreditTransactionId = creditTransaction?.relationships?.parent_credit_transaction?.data?.id;
+        if (parentCreditTransactionId) {
+            const parentCreditTransaction = await marianaTekFetcher(`credit_transactions/${parentCreditTransactionId}`);
+            const attrs = parentCreditTransaction?.data?.attributes || parentCreditTransaction?.attributes;
+            if (attrs) {
+                const allowance = attrs.transaction_amount ?? 0;
+                const remaining = fallbackRemaining ?? attrs.remaining_credits_cache ?? 0;
+                const sessionsUsed = Math.max(0, allowance - remaining);
+
+                const startDate = safeDate(attrs.transaction_datetime);
+                const endDate = safeDate(attrs.expiration_datetime);
+                const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date);
+
+                let daysElapsed = 0;
+                let timeElapsedPct = 0;
+
+                if (startDate && checkInDate) {
+                    const startDayMs = toDayMs(startDate);
+                    const endDayMs = toDayMs(endDate);
+                    const checkInDayMs = toDayMs(checkInDate);
+
+                    daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
+
+                    const totalDays = Math.round((endDayMs - startDayMs) / MS_PER_DAY)
+
+                    timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+                }
+
+                const usagePct = allowance > 0 ? (sessionsUsed / allowance) : 0;
+                const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
+
+                custom_properties = {
+                    type: 'package',
+                    start_date: startDate ? startDate.toISOString() : null,
+                    end_date: endDate ? endDate.toISOString() : null,
+                    days_elapsed: daysElapsed,
+                    elapsed_percentage: timeElapsedPct,
+                    session_allowance: allowance,
+                    sessions_remaining: remaining,
+                    session_count: sessionsUsed,
+                    session_usage_percentage: sessionUsedPct,
+                };
+            }
+        }
+    } catch (e) {
+        console.error("Failed to get package custom properties => ", e.message || e);
     }
 
     return custom_properties;
