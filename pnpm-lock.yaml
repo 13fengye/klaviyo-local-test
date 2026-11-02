@@ -15,8 +15,8 @@ importers:
         specifier: ^5.2.1
         version: 5.2.1
       klaviyo-api:
-        specifier: ^16.0.0
-        version: 16.0.0
+        specifier: ^19.0.1
+        version: 19.0.1
       yup:
         specifier: ^0.32.11
         version: 0.32.11
@@ -217,8 +217,8 @@ packages:
   is-promise@4.0.0:
     resolution: {integrity: sha512-hvpoI6korhJMnej285dSg6nu1+e6uxs7zG3BYAm5byqDsgJNWwxzM6z6iZiAgQR4TJ30JmBTOwqZUw3WlyH3AQ==}
 
-  klaviyo-api@16.0.0:
-    resolution: {integrity: sha512-oM0U5cHjWUIuuDqwcyZaI3b2pp4gc4dRuLhi55qO3hqJG9tPTUXxzPjFpyqd/0FDl6mShzMZxJyL+IY0zVuZyw==}
+  klaviyo-api@19.0.1:
+    resolution: {integrity: sha512-5GKWGE4cBqkI4clE7vnGNiJGKCPyKDI6g9cShlrsmRNAnPCtOxc0FkAfgnOgO33RZPHJ6Frk0FNSqNlK2gPDTw==}
 
   lodash-es@4.18.1:
     resolution: {integrity: sha512-J8xewKD/Gk22OZbhpOVSwcs60zhd95ESDwezOFuA3/099925PdHJ7OFHNTGtajL3AlZkykD32HykiMo+BIBI8A==}
@@ -592,7 +592,7 @@ snapshots:
 
   is-promise@4.0.0: {}
 
-  klaviyo-api@16.0.0:
+  klaviyo-api@19.0.1:
     dependencies:
       axios: 1.20.0
       form-data: 4.0.6
