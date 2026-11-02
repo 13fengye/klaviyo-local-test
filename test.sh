@@ -11,9 +11,10 @@ curl -X POST http://localhost:3000/api/events \
       "first_name": "Zhentong",
       "last_name": "Peng",
       "full_name": "ZhentongPeng",
-      "email": "zhentong+9@leisurelabs.co.uk",
+      "email": "zhentong+66@leisurelabs.co.uk",
       "is_opted_in_to_marketing": true,
-      "is_opted_in_to_sms": false,
+      "is_opted_in_to_sms": true,
+      "phone_number": "+447912345678",
       "home_location": {
         "id": "loc_001",
         "type": "location",
