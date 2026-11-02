@@ -1147,9 +1147,9 @@ function formatKlaviyoProfile(rawProfile) {
         profile_found: true,
         profile: {
             id: rawProfile.id,
-            external_id: attributes.external_id || null,
+            external_id: attributes.externalId || null,
             email: attributes.email || null,
-            phone_number: attributes.phone_number || null,
+            phone_number: attributes.phoneNumber || null,
         },
         subscriptions: {
             email: {
@@ -1159,7 +1159,7 @@ function formatKlaviyoProfile(rawProfile) {
                 marketing: rawSub.whatsapp?.marketing ? {
                     consent: rawSub.whatsapp.marketing.consent,
                     can_receive: rawSub.whatsapp.marketing.canReceive ?? false,
-                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phone_number || null,
+                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phoneNumber || null,
                 } : null,
                 transactional: rawSub.whatsapp?.transactional || null,
                 conversational: rawSub.whatsapp?.conversational || null,
