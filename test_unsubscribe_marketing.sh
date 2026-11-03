@@ -8,9 +8,9 @@ curl -X POST http://localhost:3000/api/events \
     "event_datetime": "2026-10-09T12:00:00Z",
     "unsubscribe_data": {
       "customer": {
-        "email": "zhentong+9@leisurelabs.co.uk"
+        "email": "zhentong+3@leisurelabs.co.uk"
       },
       "channels": ["email", "whatsapp"],
-      "phone_number":"+12334"
+      "phone_number":"+441234567890"
     }
   }'
