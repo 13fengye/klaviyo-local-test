@@ -1,4 +1,4 @@
-import { ConfigWrapper, Events } from "klaviyo-api";
+import { ConfigWrapper, Events, FilterBuilder } from "klaviyo-api";
 import { object, string, number, boolean, array, mixed } from 'yup';
 
 
@@ -216,9 +216,10 @@ export default async (req, res) => {
             }
 
             try {
+                const filter = new FilterBuilder().equals('email', email).build();
                 const response = await klaviyoApi.getProfiles({
-                    email,
-                    additionalFields: ['subscriptions'],
+                    filter,
+                    additionalFieldsProfile: ['subscriptions'],
                 });
                 const profiles = response.data;
 
@@ -1287,11 +1288,17 @@ class KlaviyoApi {
         );
     }
 
-    /** GET /profiles with optional email filter and additional fields. */
-    async getProfiles({ email, additionalFields = [] } = {}) {
+    /**
+     * GET /profiles — same-ish signature as the SDK's Profiles.getProfiles so
+     * callers can keep using FilterBuilder and additionalFieldsProfile without
+     * wondering about query-string names.
+     */
+    async getProfiles({ filter, additionalFieldsProfile = [] } = {}) {
         const query = {};
-        if (email) query.filter = `equals(email,"${email}")`;
-        if (additionalFields.length > 0) query['additional-fields[profile]'] = additionalFields;
+        if (filter) query.filter = filter;
+        if (additionalFieldsProfile.length > 0) {
+            query['additional-fields[profile]'] = additionalFieldsProfile;
+        }
         return this.get('/profiles', query);
     }
 
