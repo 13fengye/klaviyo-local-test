@@ -26,13 +26,13 @@ export default async (req, res) => {
     } catch (e) {
         console.log(e);
         const errorObject = {
-            message: `PROD: ` + e.errors + `\n`,
+            message: `${process.env.ENV}: ` + e.errors + `\n`,
             dt: Math.floor(Date.now() / 1000)
         }
 
-        // Send to BetterStack 
-        const ingestingHost = "s1289345.eu-nbg-2.betterstackdata.com";
-        const sourceToken = "xxxxxxxxxx";
+        // Send to BetterStack
+        const ingestingHost = process.env["BETTERSTACK_HOST"];
+        const sourceToken = process.env["BETTERSTACK_TOKEN"];
 
         const url = `https://${ingestingHost}`;
 
