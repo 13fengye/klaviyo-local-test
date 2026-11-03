@@ -16,7 +16,7 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "klaviyo-api": "^23.0.0",
+    "klaviyo-api": "^16.0.0",
     "yup": "^0.32.11"
   }
 }
