@@ -11,7 +11,7 @@ curl -X POST http://localhost:3000/api/events \
       "first_name": "Zhentong",
       "last_name": "Peng",
       "full_name": "ZhentongPeng",
-      "email": "zhentong+4@leisurelabs.co.uk",
+      "email": "zhentong@leisurelabs.co.uk",
       "is_opted_in_to_marketing": 0,
       "is_opted_in_to_sms": 1,
       "phone_number": "+441234567890",

@@ -166,38 +166,40 @@ export default async (req, res) => {
                 };
             }
 
-            try {
-                await klaviyoApi.subscribeProfiles({
-                    data: {
-                        type: 'profile-subscription-bulk-create-job',
-                        attributes: {
-                            profiles: {
-                                data: [
-                                    {
-                                        type: 'profile',
-                                        attributes: {
-                                            email: email,
-                                            phone_number: subscriptions.whatsapp ? phone_number : null,
-                                            subscriptions,
-                                            
+            if (subscriptions && Object.keys(subscriptions).length > 0) {
+                try {
+                    await klaviyoApi.subscribeProfiles({
+                        data: {
+                            type: 'profile-subscription-bulk-create-job',
+                            attributes: {
+                                profiles: {
+                                    data: [
+                                        {
+                                            type: 'profile',
+                                            attributes: {
+                                                email: email,
+                                                phone_number: subscriptions.whatsapp ? phone_number : null,
+                                                subscriptions,
+                                                
+                                            },
                                         },
-                                    },
-                                ],
+                                    ],
+                                },
                             },
                         },
-                    },
-                });
-            } catch (e) {
-                const errorObject = {
-                    event_name: 'profile.created',
-                    message: e.message,
-                    errors: e.response?.data.errors,
-                };
+                    });
+                } catch (e) {
+                    const errorObject = {
+                        event_name: 'profile.created',
+                        message: e.message,
+                        errors: e.response?.data.errors,
+                    };
 
-                console.error(JSON.stringify(errorObject, null, 2));
+                    console.error(JSON.stringify(errorObject, null, 2));
 
-                // @ts-expect-error - This is a valid response
-                return res.json(errorObject).status(200);
+                    // @ts-expect-error - This is a valid response
+                    return res.json(errorObject).status(200);
+                }
             }
 
             break;
@@ -1171,6 +1173,10 @@ function formatKlaviyoProfile(rawProfile) {
     };
 }
 
+const BASE_URL = "https://a.klaviyo.com/api";
+const REVISION = "2026-07-15";
+const DATA_SOURCE_ID = "01KW1PYWRQNMT96EEXSQNP74S7";
+
 /**
  * Generic Klaviyo API helper using native `fetch`.
  *
@@ -1182,10 +1188,6 @@ function formatKlaviyoProfile(rawProfile) {
  * so callers don't need to pass it.
  */
 class KlaviyoApi {
-    static BASE_URL = "https://a.klaviyo.com/api";
-    static REVISION = "2026-07-15";
-    static DATA_SOURCE_ID = "01K1G5JPFAVHJ5BP1SWEEE82RH";
-
     constructor(apiKey = process.env["KLAVIYO_PRIVATE_API_KEY"]) {
         this.apiKey = apiKey;
     }
@@ -1194,7 +1196,7 @@ class KlaviyoApi {
     get headers() {
         return {
             accept: 'application/vnd.api+json',
-            revision: KlaviyoApi.REVISION,
+            revision: REVISION,
             'content-type': 'application/vnd.api+json',
             Authorization: `Klaviyo-API-Key ${this.apiKey}`
         };
@@ -1206,7 +1208,7 @@ class KlaviyoApi {
      * read `e.response?.data.errors` keep working.
      */
     async post(path, payload) {
-        const res = await fetch(`${KlaviyoApi.BASE_URL}${path}`, {
+        const res = await fetch(`${BASE_URL}${path}`, {
             method: 'POST',
             headers: this.headers,
             body: JSON.stringify(payload)
@@ -1238,7 +1240,7 @@ class KlaviyoApi {
                     "data-source": {
                         data: {
                             type: "data-source",
-                            id: KlaviyoApi.DATA_SOURCE_ID
+                            id: DATA_SOURCE_ID
                         }
                     }
                 }
@@ -1404,20 +1406,26 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
             }
         })) || [];
 
-    const klaviyoApi = new KlaviyoApi();
+    const records = [
+        ...(membershipObjects || []),
+        ...(packageObjects || [])
+    ];
 
-    try {
-        await klaviyoApi.createDataSourceRecords([
-            ...membershipObjects,
-            ...packageObjects
-        ]);
-    } catch (e) {
-        console.error(
-            "Failed to create data source records",
-            e.response?.data || e.body || e.message
-        );
+    if (records.length > 0) {
+        const klaviyoApi = new KlaviyoApi();
+
+        try {
+            await klaviyoApi.createDataSourceRecords([
+                ...membershipObjects,
+                ...packageObjects
+            ]);
+        } catch (e) {
+            console.error(
+                "Failed to create data source records",
+                e.response?.data || e.body || e.message
+            );
+        }
     }
-
 }
 
 
