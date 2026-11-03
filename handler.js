@@ -166,9 +166,6 @@ export default async (req, res) => {
                 };
             }
 
-            console.log(subscriptions);
-            console.log(subscriptions.whatsapp ? phone_number : null);
-
             try {
                 await klaviyoApi.subscribeProfiles({
                     data: {

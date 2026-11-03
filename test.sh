@@ -7,11 +7,11 @@ curl -X POST http://localhost:3000/api/events \
     "tenant": "test-tenant",
     "event_datetime": "2026-09-13T12:00:00Z",
     "profile": {
-      "id": "user_123",
+      "id": "35635",
       "first_name": "Zhentong",
       "last_name": "Peng",
       "full_name": "ZhentongPeng",
-      "email": "zhentong+3@leisurelabs.co.uk",
+      "email": "zhentong@leisurelabs.co.uk",
       "is_opted_in_to_marketing": 0,
       "is_opted_in_to_sms": 1,
       "phone_number": "+441234567890",
