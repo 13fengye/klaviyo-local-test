@@ -1,6 +1,7 @@
 #!/bin/bash
+set -a; source .env; set +a
 
-curl -X POST http://localhost:3000/api/events \
+curl -X POST ${BASE_URL}/api/events \
   -H "Content-Type: application/json" \
   -d '{
   "action": "test",
