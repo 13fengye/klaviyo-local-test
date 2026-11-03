@@ -1,4 +1,4 @@
-import { ConfigWrapper, Events } from "klaviyo-api";
+import { ConfigWrapper, Events, FilterBuilder } from "klaviyo-api";
 import { object, string, number, boolean, array, mixed } from 'yup';
 
 
@@ -26,13 +26,13 @@ export default async (req, res) => {
     } catch (e) {
         console.log(e);
         const errorObject = {
-            message: `PROD: ` + e.errors + `\n`,
+            message: `${process.env.ENV}: ` + e.errors + `\n`,
             dt: Math.floor(Date.now() / 1000)
         }
 
-        // Send to BetterStack 
-        const ingestingHost = "s1289345.eu-nbg-2.betterstackdata.com";
-        const sourceToken = "xxxxxxxxxx";
+        // Send to BetterStack
+        const ingestingHost = process.env["BETTERSTACK_HOST"];
+        const sourceToken = process.env["BETTERSTACK_TOKEN"];
 
         const url = `https://${ingestingHost}`;
 
@@ -216,9 +216,10 @@ export default async (req, res) => {
             }
 
             try {
+                const filter = new FilterBuilder().equals('email', email).build();
                 const response = await klaviyoApi.getProfiles({
-                    email,
-                    additionalFields: ['subscriptions'],
+                    filter,
+                    additionalFieldsProfile: ['subscriptions'],
                 });
                 const profiles = response.data;
 
@@ -1152,7 +1153,7 @@ function formatKlaviyoProfile(rawProfile) {
             id: rawProfile.id,
             external_id: attributes.externalId || null,
             email: attributes.email || null,
-            phone_number: attributes.phoneNumber || null,
+            phone_number: attributes.phone_number || null,
         },
         subscriptions: {
             email: {
@@ -1162,7 +1163,7 @@ function formatKlaviyoProfile(rawProfile) {
                 marketing: rawSub.whatsapp?.marketing ? {
                     consent: rawSub.whatsapp.marketing.consent,
                     can_receive: rawSub.whatsapp.marketing.canReceive ?? false,
-                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phoneNumber || null,
+                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phone_number || null,
                 } : null,
                 transactional: rawSub.whatsapp?.transactional || null,
                 conversational: rawSub.whatsapp?.conversational || null,
@@ -1230,17 +1231,24 @@ class KlaviyoApi {
      * Throws the same shaped error as `post()`.
      */
     async get(path, query = {}) {
-        const url = new URL(`${BASE_URL}${path}`);
+        const parts = [];
         for (const [key, value] of Object.entries(query)) {
             if (value == null) continue;
             if (Array.isArray(value)) {
-                for (const v of value) url.searchParams.append(key, String(v));
+                for (const v of value) {
+                    parts.push(
+                        encodeURIComponent(key) + '=' + encodeURIComponent(String(v))
+                    );
+                }
             } else {
-                url.searchParams.set(key, String(value));
+                parts.push(
+                    encodeURIComponent(key) + '=' + encodeURIComponent(String(value))
+                );
             }
         }
-
-        const res = await fetch(url.toString(), {
+        const url = `${BASE_URL}${path}${parts.length ? '?' + parts.join('&') : ''}`;
+        
+        const res = await fetch(url, {
             method: 'GET',
             headers: this.headers
         });
@@ -1287,11 +1295,17 @@ class KlaviyoApi {
         );
     }
 
-    /** GET /profiles with optional email filter and additional fields. */
-    async getProfiles({ email, additionalFields = [] } = {}) {
+    /**
+     * GET /profiles — same-ish signature as the SDK's Profiles.getProfiles so
+     * callers can keep using FilterBuilder and additionalFieldsProfile without
+     * wondering about query-string names.
+     */
+    async getProfiles({ filter, additionalFieldsProfile = [] } = {}) {
         const query = {};
-        if (email) query.filter = `equals(email,"${email}")`;
-        if (additionalFields.length > 0) query['additional-fields[profile]'] = additionalFields;
+        if (filter) query.filter = filter;
+        if (additionalFieldsProfile.length > 0) {
+            query['additional-fields[profile]'] = additionalFieldsProfile;
+        }
         return this.get('/profiles', query);
     }
 
