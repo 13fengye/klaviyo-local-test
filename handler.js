@@ -1,4 +1,4 @@
-import { ConfigWrapper, Events, Profiles, FilterBuilder } from "klaviyo-api";
+import { ConfigWrapper, Events } from "klaviyo-api";
 import { object, string, number, boolean, array, mixed } from 'yup';
 
 
@@ -216,12 +216,11 @@ export default async (req, res) => {
             }
 
             try {
-                const filter = new FilterBuilder().equals('email', email).build();
-                const response = await Profiles.getProfiles({
-                    filter,
-                    additionalFieldsProfile: ['subscriptions'],
+                const response = await klaviyoApi.getProfiles({
+                    email,
+                    additionalFields: ['subscriptions'],
                 });
-                const profiles = response.body.data;
+                const profiles = response.data;
 
                 if (!profiles || profiles.length === 0) {
                     responseData = { profile_found: false };
@@ -1225,6 +1224,38 @@ class KlaviyoApi {
         return res;
     }
 
+    /**
+     * Internal GET helper. `query` is an object of query-string params; arrays
+     * become repeated keys (`additional-fields[profile]=a&additional-fields[profile]=b`).
+     * Throws the same shaped error as `post()`.
+     */
+    async get(path, query = {}) {
+        const url = new URL(`${BASE_URL}${path}`);
+        for (const [key, value] of Object.entries(query)) {
+            if (value == null) continue;
+            if (Array.isArray(value)) {
+                for (const v of value) url.searchParams.append(key, String(v));
+            } else {
+                url.searchParams.set(key, String(value));
+            }
+        }
+
+        const res = await fetch(url.toString(), {
+            method: 'GET',
+            headers: this.headers
+        });
+
+        if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            const err = new Error(`Klaviyo ${path} failed: ${res.status}`);
+            err.response = { data: body };
+            err.body = body;
+            throw err;
+        }
+
+        return res.json();
+    }
+
     // ---- Data Source Records ----
 
     buildDataSourceRecordsPayload(records) {
@@ -1254,6 +1285,14 @@ class KlaviyoApi {
             '/data-source-record-bulk-create-jobs',
             this.buildDataSourceRecordsPayload(records)
         );
+    }
+
+    /** GET /profiles with optional email filter and additional fields. */
+    async getProfiles({ email, additionalFields = [] } = {}) {
+        const query = {};
+        if (email) query.filter = `equals(email,"${email}")`;
+        if (additionalFields.length > 0) query['additional-fields[profile]'] = additionalFields;
+        return this.get('/profiles', query);
     }
 
     /** POST a profile-subscription bulk-create job. */
