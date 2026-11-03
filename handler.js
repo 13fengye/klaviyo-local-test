@@ -1153,7 +1153,7 @@ function formatKlaviyoProfile(rawProfile) {
             id: rawProfile.id,
             external_id: attributes.externalId || null,
             email: attributes.email || null,
-            phone_number: attributes.phoneNumber || null,
+            phone_number: attributes.phone_number || null,
         },
         subscriptions: {
             email: {
@@ -1163,7 +1163,7 @@ function formatKlaviyoProfile(rawProfile) {
                 marketing: rawSub.whatsapp?.marketing ? {
                     consent: rawSub.whatsapp.marketing.consent,
                     can_receive: rawSub.whatsapp.marketing.canReceive ?? false,
-                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phoneNumber || null,
+                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phone_number || null,
                 } : null,
                 transactional: rawSub.whatsapp?.transactional || null,
                 conversational: rawSub.whatsapp?.conversational || null,
@@ -1231,17 +1231,24 @@ class KlaviyoApi {
      * Throws the same shaped error as `post()`.
      */
     async get(path, query = {}) {
-        const url = new URL(`${BASE_URL}${path}`);
+        const parts = [];
         for (const [key, value] of Object.entries(query)) {
             if (value == null) continue;
             if (Array.isArray(value)) {
-                for (const v of value) url.searchParams.append(key, String(v));
+                for (const v of value) {
+                    parts.push(
+                        encodeURIComponent(key) + '=' + encodeURIComponent(String(v))
+                    );
+                }
             } else {
-                url.searchParams.set(key, String(value));
+                parts.push(
+                    encodeURIComponent(key) + '=' + encodeURIComponent(String(value))
+                );
             }
         }
-
-        const res = await fetch(url.toString(), {
+        const url = `${BASE_URL}${path}${parts.length ? '?' + parts.join('&') : ''}`;
+        
+        const res = await fetch(url, {
             method: 'GET',
             headers: this.headers
         });
