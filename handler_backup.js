@@ -30,7 +30,7 @@ export default async (req, res) => {
             dt: Math.floor(Date.now() / 1000)
         }
 
-        // Send to BetterStack 
+        // Send to BetterStack
         const ingestingHost = process.env["BETTERSTACK_HOST"];
         const sourceToken = process.env["BETTERSTACK_TOKEN"];
 
@@ -180,38 +180,38 @@ export default async (req, res) => {
             }
 
             if (subscriptions && Object.keys(subscriptions).length > 0) {
-            try {
+                try {
                     await klaviyoApi.subscribeProfiles({
-                    data: {
-                        type: 'profile-subscription-bulk-create-job',
-                        attributes: {
-                            profiles: {
-                                data: [
-                                    {
-                                        type: 'profile',
-                                        attributes: {
-                                            email: email,
-                                            phone_number: subscriptions.whatsapp ? phone_number : null,
-                                            subscriptions,
-                                            
+                        data: {
+                            type: 'profile-subscription-bulk-create-job',
+                            attributes: {
+                                profiles: {
+                                    data: [
+                                        {
+                                            type: 'profile',
+                                            attributes: {
+                                                email: email,
+                                                phone_number: subscriptions.whatsapp ? phone_number : null,
+                                                subscriptions,
+                                                
+                                            },
                                         },
-                                    },
-                                ],
+                                    ],
+                                },
                             },
                         },
-                    },
-                });
-            } catch (e) {
-                const errorObject = {
-                    event_name: 'profile.created',
-                    message: e.message,
-                    errors: e.response?.data.errors,
-                };
+                    });
+                } catch (e) {
+                    const errorObject = {
+                        event_name: 'profile.created',
+                        message: e.message,
+                        errors: e.response?.data.errors,
+                    };
 
-                console.error(JSON.stringify(errorObject, null, 2));
+                    console.error(JSON.stringify(errorObject, null, 2));
 
-                // @ts-expect-error - This is a valid response
-                return res.json(errorObject).status(200);
+                    // @ts-expect-error - This is a valid response
+                    return res.json(errorObject).status(200);
                 }
             }
 
@@ -870,7 +870,6 @@ export default async (req, res) => {
             }
 
             break;
-
         }
 
         case "order.preordered_product": {
@@ -920,8 +919,6 @@ export default async (req, res) => {
             }
 
             break;
-
-
         }
 
         case "order.completed_preorder": {
@@ -990,8 +987,6 @@ export default async (req, res) => {
             }
 
             break;
-
-
         }
 
         case "analytics.send_event": {
@@ -1036,8 +1031,6 @@ export default async (req, res) => {
             }
 
             break;
-
-
         }
 
         default:
@@ -1258,7 +1251,7 @@ function formatKlaviyoProfile(rawProfile) {
             id: rawProfile.id,
             external_id: attributes.externalId || null,
             email: attributes.email || null,
-            phone_number: attributes.phoneNumber || null,
+            phone_number: attributes.phone_number || null,
         },
         subscriptions: {
             email: {
@@ -1268,7 +1261,7 @@ function formatKlaviyoProfile(rawProfile) {
                 marketing: rawSub.whatsapp?.marketing ? {
                     consent: rawSub.whatsapp.marketing.consent,
                     can_receive: rawSub.whatsapp.marketing.canReceive ?? false,
-                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phoneNumber || null,
+                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phone_number || null,
                 } : null,
                 transactional: rawSub.whatsapp?.transactional || null,
                 conversational: rawSub.whatsapp?.conversational || null,
@@ -1574,8 +1567,8 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
 
         try {
             await klaviyoApi.createDataSourceRecords([
-                        ...membershipObjects,
-                        ...packageObjects
+                ...membershipObjects,
+                ...packageObjects
             ]);
         } catch (e) {
             console.error(
