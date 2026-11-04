@@ -62,6 +62,7 @@ export default async (req, res) => {
 
         'order.completed_preorder',
         'order.preordered_product',
+        'test',
     ];
 
     if (data.action && !customActions.includes(data.action)) {
@@ -72,6 +73,17 @@ export default async (req, res) => {
     }
 
     switch (data.action) {
+        case 'test': {
+            // Handle attended_class event
+            const reservationId = "14475467";
+
+            // const custom_properties = await getMembershipCustomProperties(reservationId);
+            const custom_properties = await getPackageCustomProperties(reservationId);
+            console.log("custom_properties", custom_properties);
+
+            break;
+        }
+
         case 'profile.created': {
             const {
                 first_name,
@@ -1033,69 +1045,86 @@ const toDayMs = (d) => {
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 async function getMembershipCustomProperties(reservationId) {
-    let custom_properties = {};
-
     try {
         const reservationData = await marianaTekFetcher(
             `reservations/${reservationId}?include=membership_transactions.membership_instance`
         );
 
-        const membership_instance = reservationData?.included?.find(item => item.type === 'membership_instances');
-        if (membership_instance) {
-            const attrs = membership_instance.attributes;
-            const cycle = attrs.billing_cycles?.[0];
-            const commitment_length = attrs.commitment_length ?? 0;
-            const totalSessionsIncluded = attrs.usage_interval_limit ?? 0;
-            const remaining = attrs.last_interval_remaining_usage_count ?? 0;
-            const sessionsUsed = totalSessionsIncluded - remaining;
-            const isUnlimited = totalSessionsIncluded >= 28;
+        const membership_instance = reservationData?.included?.find(
+            item => item.type === 'membership_instances'
+        );
 
-            const membershipStartDate = safeDate(attrs.start_date);
-            const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
-            const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
-            const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date);
-
-            let daysElapsed = 0;
-            let timeElapsedPct = 0;
-
-            if (cycleStartDate && checkInDate) {
-                const startDayMs = toDayMs(cycleStartDate);
-                const endDayMs = toDayMs(cycleEndDate);
-                const checkInDayMs = toDayMs(checkInDate);
-
-                daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
-
-                const totalDays = (cycleEndDate && cycleEndDate > cycleStartDate)
-                    ? Math.round((endDayMs - startDayMs) / MS_PER_DAY)
-                    : 31;
-
-                timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
-            }
-
-            const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
-            const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
-
-            custom_properties = {
-                type: 'membership',
-                membership_instance_name: attrs.membership_name,
-                current_cycle_start_date: cycleStartDate,
-                current_cycle_end_date: cycleEndDate,
-                cycle_days_elapsed: daysElapsed,
-                cycle_elapsed_percentage: timeElapsedPct,
-                total_sessions_included: totalSessionsIncluded,
-                sessions_remaining: remaining,
-                session_count: sessionsUsed,
-                session_usage_percentage: sessionUsedPct,
-                is_unlimited: isUnlimited,
-                commitment_length: commitment_length,
-                membership_start_date: membershipStartDate
-            };
+        if (!membership_instance) {
+            return {};
         }
+
+        const checkInDate = reservationData?.data?.attributes?.check_in_date;
+        return calculateMembershipProperties(membership_instance, checkInDate);
+
     } catch (e) {
         console.error("Failed to get membership custom properties => ", e);
+        return {};
+    }
+}
+
+function calculateMembershipProperties(membershipInstance, checkInDateInput = null) {
+    if (!membershipInstance?.attributes) {
+        return {};
     }
 
-    return custom_properties;
+    const attrs = membershipInstance.attributes;
+    const cycle = attrs.billing_cycles?.[0];
+    const commitmentLength = attrs.commitment_length ?? 0;
+    const renewalCount = attrs.renewal_count ?? 0;
+    const totalSessionsIncluded = attrs.usage_interval_limit ?? 0;
+    const remaining = attrs.last_interval_remaining_usage_count ?? 0;
+    const sessionsUsed = totalSessionsIncluded - remaining;
+    const isUnlimited = totalSessionsIncluded >= 28;
+    const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
+
+    const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
+    const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
+    const checkInDate = safeDate(checkInDateInput);
+
+    let daysElapsed = 0;
+    let timeElapsedPct = 0;
+
+    if (cycleStartDate && checkInDate) {
+        const startDayMs = toDayMs(cycleStartDate);
+        const endDayMs = toDayMs(cycleEndDate);
+        const checkInDayMs = toDayMs(checkInDate);
+
+        daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
+
+        const totalDays = (cycleEndDate && cycleEndDate > cycleStartDate)
+            ? Math.round((endDayMs - startDayMs) / MS_PER_DAY)
+            : 31;
+
+        timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+    }
+
+    const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
+    const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
+
+    return {
+        type: 'membership',
+        membership_contract_id: membershipInstance?.relationships?.membership_product?.data?.id || null,
+        membership_instance_id: membershipInstance.id,
+        membership_start_date: safeDate(attrs.start_date),
+        membership_instance_name: attrs.membership_name,
+        commitment_length: commitmentLength,
+        renewal_count: renewalCount,
+        current_cycle_start_date: cycleStartDate,
+        current_cycle_end_date: cycleEndDate,
+        cycle_days_elapsed: daysElapsed,
+        cycle_elapsed_percentage: timeElapsedPct,
+        total_sessions_included: totalSessionsIncluded,
+        sessions_remaining: remaining,
+        session_count: sessionsUsed,
+        session_usage_percentage: sessionUsedPct,
+        is_unlimited: isUnlimited,
+        is_rolling_contract: isRollingContract
+    };
 }
 
 async function getPackageCustomProperties(reservationId, fallbackRemaining) {
@@ -1140,10 +1169,9 @@ async function getPackageCustomProperties(reservationId, fallbackRemaining) {
 
                 custom_properties = {
                     type: 'package',
-                    start_date: startDate ? startDate.toISOString() : null,
-                    end_date: endDate ? endDate.toISOString() : null,
-                    days_elapsed: daysElapsed,
-                    elapsed_percentage: timeElapsedPct,
+                    package_start_date: startDate ? startDate.toISOString() : null,
+                    package_expiry_date: endDate ? endDate.toISOString() : null,
+                    period_elapsed_percentage: timeElapsedPct,
                     total_sessions_included: totalSessionsIncluded,
                     sessions_remaining: remaining,
                     session_count: sessionsUsed,
@@ -1671,7 +1699,8 @@ const requestBodySchema = object({
             'membership.deactivated',
             'order.completed',
             'order.completed_preorder',
-            'order.preordered_product'
+            'order.preordered_product',
+            'test',
         ])
         .required()
         .typeError('Action is required'),
