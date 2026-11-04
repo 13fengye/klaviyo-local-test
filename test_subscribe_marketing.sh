@@ -9,7 +9,7 @@ curl -X POST ${BASE_URL}/api/events \
     "event_datetime": "2026-10-09T12:00:00Z",
     "subscribe_data": {
       "customer": {
-        "email": "zhentong@leisurelabs.co.uk"
+        "email": "zhentong+test@leisurelabs.co.uk"
       },
       "channels": ["email", "whatsapp"],
       "phone_number":"+441234567890"

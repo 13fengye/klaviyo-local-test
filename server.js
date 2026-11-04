@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
-import handler from './handler.js';
+import handler from './handler_dev.js';
 
 const app = express();
 
