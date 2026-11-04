@@ -1045,11 +1045,12 @@ async function getMembershipCustomProperties(reservationId) {
             const attrs = membership_instance.attributes;
             const cycle = attrs.billing_cycles?.[0];
             const commitment_length = attrs.commitment_length ?? 0;
-            const allowance = attrs.usage_interval_limit ?? 0;
+            const totalSessionsIncluded = attrs.usage_interval_limit ?? 0;
             const remaining = attrs.last_interval_remaining_usage_count ?? 0;
-            const sessionsUsed = allowance - remaining;
-            const isUnlimited = allowance >= 28;
+            const sessionsUsed = totalSessionsIncluded - remaining;
+            const isUnlimited = totalSessionsIncluded >= 28;
 
+            const membershipStartDate = safeDate(attrs.start_date);
             const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
             const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
             const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date);
@@ -1071,7 +1072,7 @@ async function getMembershipCustomProperties(reservationId) {
                 timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
             }
 
-            const usagePct = allowance > 0 ? (sessionsUsed / allowance) : 0;
+            const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
             const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
 
             custom_properties = {
@@ -1081,12 +1082,13 @@ async function getMembershipCustomProperties(reservationId) {
                 current_cycle_end_date: cycleEndDate,
                 cycle_days_elapsed: daysElapsed,
                 cycle_elapsed_percentage: timeElapsedPct,
-                session_allowance: allowance,
+                total_sessions_included: totalSessionsIncluded,
                 sessions_remaining: remaining,
                 session_count: sessionsUsed,
                 session_usage_percentage: sessionUsedPct,
                 is_unlimited: isUnlimited,
-                commitment_length: commitment_length
+                commitment_length: commitment_length,
+                membership_start_date: membershipStartDate
             };
         }
     } catch (e) {
@@ -1110,9 +1112,9 @@ async function getPackageCustomProperties(reservationId, fallbackRemaining) {
             const parentCreditTransaction = await marianaTekFetcher(`credit_transactions/${parentCreditTransactionId}`);
             const attrs = parentCreditTransaction?.data?.attributes || parentCreditTransaction?.attributes;
             if (attrs) {
-                const allowance = attrs.transaction_amount ?? 0;
+                const totalSessionsIncluded = attrs.transaction_amount ?? 0;
                 const remaining = fallbackRemaining ?? attrs.remaining_credits_cache ?? 0;
-                const sessionsUsed = Math.max(0, allowance - remaining);
+                const sessionsUsed = Math.max(0, totalSessionsIncluded - remaining);
 
                 const startDate = safeDate(attrs.transaction_datetime);
                 const endDate = safeDate(attrs.expiration_datetime);
@@ -1133,7 +1135,7 @@ async function getPackageCustomProperties(reservationId, fallbackRemaining) {
                     timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
                 }
 
-                const usagePct = allowance > 0 ? (sessionsUsed / allowance) : 0;
+                const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
                 const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
 
                 custom_properties = {
@@ -1142,7 +1144,7 @@ async function getPackageCustomProperties(reservationId, fallbackRemaining) {
                     end_date: endDate ? endDate.toISOString() : null,
                     days_elapsed: daysElapsed,
                     elapsed_percentage: timeElapsedPct,
-                    session_allowance: allowance,
+                    total_sessions_included: totalSessionsIncluded,
                     sessions_remaining: remaining,
                     session_count: sessionsUsed,
                     session_usage_percentage: sessionUsedPct,
