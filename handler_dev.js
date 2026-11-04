@@ -30,7 +30,7 @@ export default async (req, res) => {
             dt: Math.floor(Date.now() / 1000)
         }
 
-        // Send to BetterStack
+        // Send to BetterStack 
         const ingestingHost = process.env["BETTERSTACK_HOST"];
         const sourceToken = process.env["BETTERSTACK_TOKEN"];
 
@@ -167,38 +167,38 @@ export default async (req, res) => {
             }
 
             if (subscriptions && Object.keys(subscriptions).length > 0) {
-                try {
+            try {
                     await klaviyoApi.subscribeProfiles({
-                        data: {
-                            type: 'profile-subscription-bulk-create-job',
-                            attributes: {
-                                profiles: {
-                                    data: [
-                                        {
-                                            type: 'profile',
-                                            attributes: {
-                                                email: email,
-                                                phone_number: subscriptions.whatsapp ? phone_number : null,
-                                                subscriptions,
-                                                
-                                            },
+                    data: {
+                        type: 'profile-subscription-bulk-create-job',
+                        attributes: {
+                            profiles: {
+                                data: [
+                                    {
+                                        type: 'profile',
+                                        attributes: {
+                                            email: email,
+                                            phone_number: subscriptions.whatsapp ? phone_number : null,
+                                            subscriptions,
+                                            
                                         },
-                                    ],
-                                },
+                                    },
+                                ],
                             },
                         },
-                    });
-                } catch (e) {
-                    const errorObject = {
-                        event_name: 'profile.created',
-                        message: e.message,
-                        errors: e.response?.data.errors,
-                    };
+                    },
+                });
+            } catch (e) {
+                const errorObject = {
+                    event_name: 'profile.created',
+                    message: e.message,
+                    errors: e.response?.data.errors,
+                };
 
-                    console.error(JSON.stringify(errorObject, null, 2));
+                console.error(JSON.stringify(errorObject, null, 2));
 
-                    // @ts-expect-error - This is a valid response
-                    return res.json(errorObject).status(200);
+                // @ts-expect-error - This is a valid response
+                return res.json(errorObject).status(200);
                 }
             }
 
@@ -482,6 +482,8 @@ export default async (req, res) => {
             let custom_properties = {};
             if (membership_payment) {
                 custom_properties = await getMembershipCustomProperties(reservation.id);
+            } else if (credit_payment) {
+                custom_properties = await getPackageCustomProperties(reservation.id);
             }
 
             try {
@@ -1022,7 +1024,7 @@ export default async (req, res) => {
 
             break;
 
-            
+
         }
 
         default:
@@ -1068,66 +1070,156 @@ async function marianaTekFetcher(path) {
 
 }
 
-async function getMembershipCustomProperties(reservationId) {
-    let custom_properties = {};
+const safeDate = (str) => {
+    if (!str) return null;
+    const d = new Date(typeof str === 'string' ? str.replace(' ', 'T') : str);
+    return isNaN(d.getTime()) ? null : d;
+};
 
+const toDayMs = (d) => {
+    if (!d) return null;
+    return new Date(d.toISOString().slice(0, 10)).getTime();
+};
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+async function getMembershipCustomProperties(reservationId) {
     try {
         const reservationData = await marianaTekFetcher(
             `reservations/${reservationId}?include=membership_transactions.membership_instance`
         );
 
-        const membership_instance = reservationData?.included?.find(item => item.type === 'membership_instances');
-        if (membership_instance) {
-            const attrs = membership_instance.attributes;
-            const cycle = attrs.billing_cycles?.[0];
-            const commitment_length = attrs.commitment_length ?? 0;
-            const allowance = attrs.usage_interval_limit ?? 0;
-            const remaining = attrs.last_interval_remaining_usage_count ?? 0;
-            const sessionsUsed = allowance - remaining;
-            const isUnlimited = allowance >= 28;
+        const membership_instance = reservationData?.included?.find(
+            item => item.type === 'membership_instances'
+        );
 
-            const safeDate = (str) => {
-                if (!str) return null;
-                const d = new Date(str.replace(' ', 'T'));
-                return isNaN(d.getTime()) ? null : d;
-            };
-
-            const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
-            const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
-            const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date || data?.event_datetime);
-
-            let daysElapsed = 0;
-            let timeElapsedPct = 0;
-            if (cycleStartDate && checkInDate) {
-                const elapsedMs = Math.max(0, checkInDate.getTime() - cycleStartDate.getTime());
-                daysElapsed = Math.floor(elapsedMs / (1000 * 60 * 60 * 24));
-
-                const totalCycleMs = (cycleEndDate && cycleEndDate > cycleStartDate)
-                    ? (cycleEndDate.getTime() - cycleStartDate.getTime())
-                    : (31 * 24 * 60 * 60 * 1000);
-
-                timeElapsedPct = Math.min(100, Math.round((elapsedMs / totalCycleMs) * 100));
-            }
-
-            const usagePct = allowance > 0 ? (sessionsUsed / allowance) : 0;
-            const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
-
-            custom_properties = {
-                membership_instance_name: attrs.membership_name,
-                current_cycle_start_date: cycleStartDate,
-                current_cycle_end_date: cycleEndDate,
-                cycle_days_elapsed: daysElapsed,
-                cycle_elapsed_percentage: timeElapsedPct,
-                session_allowance: allowance,
-                sessions_remaining: remaining,
-                session_count: sessionsUsed,
-                session_usage_percentage: sessionUsedPct,
-                is_unlimited: isUnlimited,
-                commitment_length: commitment_length
-            };
+        if (!membership_instance) {
+            return {};
         }
+
+        const checkInDate = reservationData?.data?.attributes?.check_in_date;
+        return calculateMembershipProperties(membership_instance, checkInDate);
+
     } catch (e) {
         console.error("Failed to get membership custom properties => ", e);
+        return {};
+    }
+}
+
+function calculateMembershipProperties(membershipInstance, checkInDateInput = null) {
+    if (!membershipInstance?.attributes) {
+        return {};
+    }
+
+    const attrs = membershipInstance.attributes;
+    const cycle = attrs.billing_cycles?.[0];
+    const commitmentLength = attrs.commitment_length ?? 0;
+    const renewalCount = attrs.renewal_count ?? 0;
+    const totalSessionsIncluded = attrs.usage_interval_limit ?? 0;
+    const remaining = attrs.last_interval_remaining_usage_count ?? 0;
+    const sessionsUsed = totalSessionsIncluded - remaining;
+    const isUnlimited = totalSessionsIncluded >= 28;
+    const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
+
+    const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
+    const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
+    const checkInDate = safeDate(checkInDateInput);
+
+    let daysElapsed = 0;
+    let timeElapsedPct = 0;
+
+    if (cycleStartDate && checkInDate) {
+        const startDayMs = toDayMs(cycleStartDate);
+        const endDayMs = toDayMs(cycleEndDate);
+        const checkInDayMs = toDayMs(checkInDate);
+
+        daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
+
+        const totalDays = (cycleEndDate && cycleEndDate > cycleStartDate)
+            ? Math.round((endDayMs - startDayMs) / MS_PER_DAY)
+            : 31;
+
+        timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+    }
+
+    const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
+    const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
+
+    return {
+        type: 'membership',
+        membership_contract_id: membershipInstance?.relationships?.membership_product?.data?.id || null,
+        membership_instance_id: membershipInstance.id,
+        membership_start_date: safeDate(attrs.start_date),
+        membership_instance_name: attrs.membership_name,
+        commitment_length: commitmentLength,
+        renewal_count: renewalCount,
+        current_cycle_start_date: cycleStartDate,
+        current_cycle_end_date: cycleEndDate,
+        cycle_days_elapsed: daysElapsed,
+        cycle_elapsed_percentage: timeElapsedPct,
+        total_sessions_included: totalSessionsIncluded,
+        sessions_remaining: remaining,
+        session_count: sessionsUsed,
+        session_usage_percentage: sessionUsedPct,
+        is_unlimited: isUnlimited,
+        is_rolling_contract: isRollingContract
+    };
+}
+
+async function getPackageCustomProperties(reservationId, fallbackRemaining) {
+    let custom_properties = {};
+
+    try {
+        const reservationData = await marianaTekFetcher(
+            `reservations/${reservationId}?include=credit_transactions`
+        );
+
+        const creditTransaction = reservationData?.included?.find(item => item.type === 'credit_transactions');
+        const parentCreditTransactionId = creditTransaction?.relationships?.parent_credit_transaction?.data?.id;
+        if (parentCreditTransactionId) {
+            const parentCreditTransaction = await marianaTekFetcher(`credit_transactions/${parentCreditTransactionId}`);
+            const attrs = parentCreditTransaction?.data?.attributes || parentCreditTransaction?.attributes;
+            if (attrs) {
+                const totalSessionsIncluded = attrs.transaction_amount ?? 0;
+                const remaining = fallbackRemaining ?? attrs.remaining_credits_cache ?? 0;
+                const sessionsUsed = Math.max(0, totalSessionsIncluded - remaining);
+
+                const startDate = safeDate(attrs.transaction_datetime);
+                const endDate = safeDate(attrs.expiration_datetime);
+                const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date);
+
+                let daysElapsed = 0;
+                let timeElapsedPct = 0;
+
+                if (startDate && checkInDate) {
+                    const startDayMs = toDayMs(startDate);
+                    const endDayMs = toDayMs(endDate);
+                    const checkInDayMs = toDayMs(checkInDate);
+
+                    daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
+
+                    const totalDays = Math.round((endDayMs - startDayMs) / MS_PER_DAY)
+
+                    timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+                }
+
+                const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
+                const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
+
+                custom_properties = {
+                    type: 'package',
+                    package_start_date: startDate ? startDate.toISOString() : null,
+                    package_expiry_date: endDate ? endDate.toISOString() : null,
+                    period_elapsed_percentage: timeElapsedPct,
+                    total_sessions_included: totalSessionsIncluded,
+                    sessions_remaining: remaining,
+                    session_count: sessionsUsed,
+                    session_usage_percentage: sessionUsedPct,
+                };
+            }
+        }
+    } catch (e) {
+        console.error("Failed to get package custom properties => ", e.message || e);
     }
 
     return custom_properties;
@@ -1153,7 +1245,7 @@ function formatKlaviyoProfile(rawProfile) {
             id: rawProfile.id,
             external_id: attributes.externalId || null,
             email: attributes.email || null,
-            phone_number: attributes.phone_number || null,
+            phone_number: attributes.phoneNumber || null,
         },
         subscriptions: {
             email: {
@@ -1163,7 +1255,7 @@ function formatKlaviyoProfile(rawProfile) {
                 marketing: rawSub.whatsapp?.marketing ? {
                     consent: rawSub.whatsapp.marketing.consent,
                     can_receive: rawSub.whatsapp.marketing.canReceive ?? false,
-                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phone_number || null,
+                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phoneNumber || null,
                 } : null,
                 transactional: rawSub.whatsapp?.transactional || null,
                 conversational: rawSub.whatsapp?.conversational || null,
@@ -1469,8 +1561,8 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
 
         try {
             await klaviyoApi.createDataSourceRecords([
-                ...membershipObjects,
-                ...packageObjects
+                        ...membershipObjects,
+                        ...packageObjects
             ]);
         } catch (e) {
             console.error(
