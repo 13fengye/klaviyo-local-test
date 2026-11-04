@@ -1,4 +1,4 @@
-import { ConfigWrapper, Events, Profiles, FilterBuilder } from "klaviyo-api";
+import { ConfigWrapper, Events, FilterBuilder } from "klaviyo-api";
 import { object, string, number, boolean, array, mixed } from 'yup';
 
 
@@ -26,13 +26,13 @@ export default async (req, res) => {
     } catch (e) {
         console.log(e);
         const errorObject = {
-            message: `PROD: ` + e.errors + `\n`,
+            message: `${process.env.ENV}: ` + e.errors + `\n`,
             dt: Math.floor(Date.now() / 1000)
         }
 
         // Send to BetterStack 
-        const ingestingHost = "s1289345.eu-nbg-2.betterstackdata.com";
-        const sourceToken = "xxxxxxxxxx";
+        const ingestingHost = process.env["BETTERSTACK_HOST"];
+        const sourceToken = process.env["BETTERSTACK_TOKEN"];
 
         const url = `https://${ingestingHost}`;
 
@@ -55,6 +55,8 @@ export default async (req, res) => {
 
     ConfigWrapper(process.env["KLAVIYO_PRIVATE_API_KEY"]);
 
+    const klaviyoApi = new KlaviyoApi();
+
     const customActions = [
         'profile.get_user_info',
         'profile.unsubscribe_marketing',
@@ -62,6 +64,8 @@ export default async (req, res) => {
 
         'order.completed_preorder',
         'order.preordered_product',
+        'analytics.send_event',
+
         'test',
     ];
 
@@ -154,7 +158,7 @@ export default async (req, res) => {
 
             const subscriptions = {};
 
-            if (is_opted_in_to_marketing == true) {
+            if (is_opted_in_to_marketing) {
                 subscriptions.email = {
                     marketing: {
                         consent: 'SUBSCRIBED',
@@ -164,7 +168,7 @@ export default async (req, res) => {
 
             // Considering that WhatsApp does not have field hosting, we will use SMS fields instead,
             // which means that SMS services will not be enabled in the future. 
-            if (is_opted_in_to_sms == true) {
+            if (is_opted_in_to_sms) {
                 subscriptions.whatsapp = {
                     marketing: { 
                         consent: 'SUBSCRIBED', 
@@ -175,8 +179,9 @@ export default async (req, res) => {
                 };
             }
 
+            if (subscriptions && Object.keys(subscriptions).length > 0) {
             try {
-                await Profiles.bulkSubscribeProfiles({
+                    await klaviyoApi.subscribeProfiles({
                     data: {
                         type: 'profile-subscription-bulk-create-job',
                         attributes: {
@@ -186,7 +191,7 @@ export default async (req, res) => {
                                         type: 'profile',
                                         attributes: {
                                             email: email,
-                                            phoneNumber: subscriptions.whatsapp ? phone_number : null,
+                                            phone_number: subscriptions.whatsapp ? phone_number : null,
                                             subscriptions,
                                             
                                         },
@@ -207,6 +212,7 @@ export default async (req, res) => {
 
                 // @ts-expect-error - This is a valid response
                 return res.json(errorObject).status(200);
+                }
             }
 
             break;
@@ -224,11 +230,11 @@ export default async (req, res) => {
 
             try {
                 const filter = new FilterBuilder().equals('email', email).build();
-                const response = await Profiles.getProfiles({
+                const response = await klaviyoApi.getProfiles({
                     filter,
                     additionalFieldsProfile: ['subscriptions'],
                 });
-                const profiles = response.body.data;
+                const profiles = response.data;
 
                 if (!profiles || profiles.length === 0) {
                     responseData = { profile_found: false };
@@ -306,7 +312,7 @@ export default async (req, res) => {
                                         type: 'profile',
                                         attributes: {
                                             email,
-                                            phoneNumber: subscriptions.whatsapp ? phoneNumber : null,
+                                            phone_number: subscriptions.whatsapp ? phoneNumber : null,
                                             subscriptions,
                                         },
                                     },
@@ -316,7 +322,7 @@ export default async (req, res) => {
                     },
                 };
 
-                await Profiles.bulkSubscribeProfiles(payload);
+                await klaviyoApi.subscribeProfiles(payload);
             } catch (e) {
                 const errorObject = {
                     event_name: data.action,
@@ -389,7 +395,7 @@ export default async (req, res) => {
                                         type: 'profile',
                                         attributes: {
                                             email,
-                                            phoneNumber: subscriptions.whatsapp ? phoneNumber : null,
+                                            phone_number: subscriptions.whatsapp ? phoneNumber : null,
                                             subscriptions,
                                         },
                                     },
@@ -399,7 +405,7 @@ export default async (req, res) => {
                     },
                 };
 
-                await Profiles.bulkUnsubscribeProfiles(payload);
+                await klaviyoApi.unsubscribeProfiles(payload);
             } catch (e) {
                 const errorObject = {
                     event_name: data.action,
@@ -988,6 +994,52 @@ export default async (req, res) => {
 
         }
 
+        case "analytics.send_event": {
+            const eventName = data.event_name;
+            const email = data.email;
+            const properties = data.properties;
+
+            try {
+                await Events.createEvent({
+                    data: {
+                        type: 'event',
+                        attributes: {
+                            metric: {
+                                data: {
+                                    type: 'metric',
+                                    attributes: {
+                                        name: eventName,
+                                    },
+                                },
+                            },
+                            properties: properties,
+                            profile: {
+                                data: {
+                                    type: 'profile',
+                                    attributes: {
+                                        email: email,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                });
+            } catch (e) {
+                const errorObject = {
+                    event_name: eventName,
+                    message: e.message,
+                    errors: e.response?.data.errors,
+                };
+
+                console.error(JSON.stringify(errorObject, null, 2));
+                return res.json(errorObject).status(200);
+            }
+
+            break;
+
+
+        }
+
         default:
             throw new Error('Unsupported Event');
     }
@@ -1199,7 +1251,6 @@ function formatKlaviyoProfile(rawProfile) {
             can_receive: channelData[canReceiveKey] ?? false,
         };
     };
-    console.log('attributes: ', attributes);
 
     return {
         profile_found: true,
@@ -1225,6 +1276,153 @@ function formatKlaviyoProfile(rawProfile) {
         },
         properties: attributes.properties || {},
     };
+}
+
+const BASE_URL = "https://a.klaviyo.com/api";
+const REVISION = "2026-07-15";
+const DATA_SOURCE_ID = "01KW1PYWRQNMT96EEXSQNP74S7";
+
+/**
+ * Generic Klaviyo API helper using native `fetch`.
+ *
+ * Centralizes the common headers (auth, revision, content-type) and exposes
+ * methods for endpoints where the SDK's older version fails to serialize
+ * payloads correctly (e.g. `subscriptions.whatsapp`).
+ *
+ * The API key is read from `process.env.KLAVIYO_PRIVATE_API_KEY` internally,
+ * so callers don't need to pass it.
+ */
+class KlaviyoApi {
+    constructor(apiKey = process.env["KLAVIYO_PRIVATE_API_KEY"]) {
+        this.apiKey = apiKey;
+    }
+
+    /** Common request headers shared by every Klaviyo endpoint. */
+    get headers() {
+        return {
+            accept: 'application/vnd.api+json',
+            revision: REVISION,
+            'content-type': 'application/vnd.api+json',
+            Authorization: `Klaviyo-API-Key ${this.apiKey}`
+        };
+    }
+
+    /**
+     * Internal POST helper. Throws an error (with `response.data` / `body`
+     * attached) when the response is not OK, so existing try/catch blocks that
+     * read `e.response?.data.errors` keep working.
+     */
+    async post(path, payload) {
+        const res = await fetch(`${BASE_URL}${path}`, {
+            method: 'POST',
+            headers: this.headers,
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            const err = new Error(`Klaviyo ${path} failed: ${res.status}`);
+            err.response = { data: body };
+            err.body = body;
+            throw err;
+        }
+
+        return res;
+    }
+
+    /**
+     * Internal GET helper. `query` is an object of query-string params; arrays
+     * become repeated keys (`additional-fields[profile]=a&additional-fields[profile]=b`).
+     * Throws the same shaped error as `post()`.
+     */
+    async get(path, query = {}) {
+        const parts = [];
+        for (const [key, value] of Object.entries(query)) {
+            if (value == null) continue;
+            if (Array.isArray(value)) {
+                for (const v of value) {
+                    parts.push(
+                        encodeURIComponent(key) + '=' + encodeURIComponent(String(v))
+                    );
+                }
+            } else {
+                parts.push(
+                    encodeURIComponent(key) + '=' + encodeURIComponent(String(value))
+                );
+            }
+        }
+        const url = `${BASE_URL}${path}${parts.length ? '?' + parts.join('&') : ''}`;
+        
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: this.headers
+        });
+
+        if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            const err = new Error(`Klaviyo ${path} failed: ${res.status}`);
+            err.response = { data: body };
+            err.body = body;
+            throw err;
+        }
+
+        return res.json();
+    }
+
+    // ---- Data Source Records ----
+
+    buildDataSourceRecordsPayload(records) {
+        return {
+            data: {
+                type: "data-source-record-bulk-create-job",
+                attributes: {
+                    "data-source-records": {
+                        data: records
+                    }
+                },
+                relationships: {
+                    "data-source": {
+                        data: {
+                            type: "data-source",
+                            id: DATA_SOURCE_ID
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    /** POST a data-source-record bulk-create job. */
+    async createDataSourceRecords(records) {
+        return this.post(
+            '/data-source-record-bulk-create-jobs',
+            this.buildDataSourceRecordsPayload(records)
+        );
+    }
+
+    /**
+     * GET /profiles — same-ish signature as the SDK's Profiles.getProfiles so
+     * callers can keep using FilterBuilder and additionalFieldsProfile without
+     * wondering about query-string names.
+     */
+    async getProfiles({ filter, additionalFieldsProfile = [] } = {}) {
+        const query = {};
+        if (filter) query.filter = filter;
+        if (additionalFieldsProfile.length > 0) {
+            query['additional-fields[profile]'] = additionalFieldsProfile;
+        }
+        return this.get('/profiles', query);
+    }
+
+    /** POST a profile-subscription bulk-create job. */
+    async subscribeProfiles(payload) {
+        return this.post('/profile-subscription-bulk-create-jobs', payload);
+    }
+
+    /** POST a profile-subscription bulk-delete job. */
+    async unsubscribeProfiles(payload) {
+        return this.post('/profile-subscription-bulk-delete-jobs', payload);
+    }
 }
 
 /**
@@ -1366,49 +1564,26 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
             }
         })) || [];
 
-    const dataSourceRecords = {
-        data: {
-            type: "data-source-record-bulk-create-job",
-            attributes: {
-                "data-source-records": {
-                    data: [
+    const records = [
+        ...(membershipObjects || []),
+        ...(packageObjects || [])
+    ];
+
+    if (records.length > 0) {
+        const klaviyoApi = new KlaviyoApi();
+
+        try {
+            await klaviyoApi.createDataSourceRecords([
                         ...membershipObjects,
                         ...packageObjects
-                    ]
-                }
-            },
-            relationships: {
-                "data-source": {
-                    data: {
-                        type: "data-source",
-                        id: "01K1G5JPFAVHJ5BP1SWEEE82RH"
-                    }
-                }
-            }
+            ]);
+        } catch (e) {
+            console.error(
+                "Failed to create data source records",
+                e.response?.data || e.body || e.message
+            );
         }
-    };
-
-    const options = {
-        method: 'POST',
-        headers: {
-            accept: 'application/vnd.api+json',
-            revision: '2026-07-15',
-            'content-type': 'application/vnd.api+json',
-            Authorization: `Klaviyo-API-Key ${process.env["KLAVIYO_PRIVATE_API_KEY"]}`
-        },
-        body: JSON.stringify(dataSourceRecords)
-    };
-
-    const res = await fetch('https://a.klaviyo.com/api/data-source-record-bulk-create-jobs', options);
-
-    const status = await res.status;
-
-    if (status !== 204) {
-        console.error("Failed to update data source", await res.json())
     }
-
-
-
 }
 
 
@@ -1700,6 +1875,8 @@ const requestBodySchema = object({
             'order.completed',
             'order.completed_preorder',
             'order.preordered_product',
+            'analytics.send_event',
+
             'test',
         ])
         .required()
