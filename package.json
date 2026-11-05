@@ -15,6 +15,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.30.2",
   "dependencies": {
+    "csv-parser": "^3.2.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "klaviyo-api": "19.0.0",

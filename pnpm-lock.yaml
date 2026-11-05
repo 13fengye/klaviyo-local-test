@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      csv-parser:
+        specifier: ^3.2.1
+        version: 3.2.1
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
@@ -72,6 +75,11 @@ packages:
   cookie@0.7.2:
     resolution: {integrity: sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w==}
     engines: {node: '>= 0.6'}
+
+  csv-parser@3.2.1:
+    resolution: {integrity: sha512-v8RPMSglouR9od735SnwSxLBbCJqEPSbgm1R5qfr8yIiMUCEFjox56kRZid0SvgHJEkxeIEu3+a9QS3YRh7CuA==}
+    engines: {node: '>= 10'}
+    hasBin: true
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -416,6 +424,8 @@ snapshots:
   cookie-signature@1.2.2: {}
 
   cookie@0.7.2: {}
+
+  csv-parser@3.2.1: {}
 
   debug@4.4.3:
     dependencies:

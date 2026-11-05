@@ -1,4 +1,4 @@
-import { ConfigWrapper, Events, Profiles, FilterBuilder } from "klaviyo-api";
+import { ConfigWrapper, Events, Profiles } from "klaviyo-api";
 import { object, string, number, boolean, array, mixed } from 'yup';
 
 
@@ -17,7 +17,7 @@ export default async (req, res) => {
         );
     }
 
-    let data, responseData;
+    let data;
 
     try {
         const result = await requestBodySchema.validate(req.body);
@@ -55,22 +55,11 @@ export default async (req, res) => {
 
     ConfigWrapper(process.env["KLAVIYO_PRIVATE_API_KEY"]);
 
-    const customActions = [
-        'profile.get_user_info',
-        'profile.unsubscribe_marketing',
-        'profile.subscribe_marketing',
 
-        'order.completed_preorder',
-        'order.preordered_product',
-        'analytics.send_event',
-    ];
-
-    if (data.action && !customActions.includes(data.action)) {
-        /**
-         * Create or Update Membership or Package Data Records
-         */
-        await createAndUpdateMemberhipOrPackageRecords(data);
-    }
+    /**
+     * Create or Update Membership or Package Data Records
+     */
+    await createAndUpdateMemberhipOrPackageRecords(data);
 
     switch (data.action) {
         case 'profile.created': {
@@ -151,18 +140,15 @@ export default async (req, res) => {
                 };
             }
 
-            // Considering that WhatsApp does not have field hosting, we will use SMS fields instead,
-            // which means that SMS services will not be enabled in the future. 
             if (is_opted_in_to_sms == true) {
-                // subscriptions.whatsapp = {
-                //     marketing: { 
-                //         consent: 'SUBSCRIBED', 
-                //     }, 
-                //     transactional: { 
-                //         consent: 'SUBSCRIBED', 
-                //     } 
-                // };
+                subscriptions.sms = {
+                    marketing: {
+                        consent: 'SUBSCRIBED',
+                    },
+                };
             }
+
+
 
             try {
                 await Profiles.bulkSubscribeProfiles({
@@ -175,7 +161,7 @@ export default async (req, res) => {
                                         type: 'profile',
                                         attributes: {
                                             email: email,
-                                            phoneNumber: subscriptions.whatsapp ? phone_number : null,
+                                            phoneNumber: subscriptions.sms ? phone_number : null,
                                             subscriptions,
                                             
                                         },
@@ -190,210 +176,6 @@ export default async (req, res) => {
                     event_name: 'profile.created',
                     message: e.message,
                     errors: e.response?.data.errors,
-                };
-
-                console.error(JSON.stringify(errorObject, null, 2));
-
-                // @ts-expect-error - This is a valid response
-                return res.json(errorObject).status(200);
-            }
-
-            break;
-        }
-
-        case 'profile.get_user_info': {
-            const email = data.customer?.email;
-
-            if (!email || typeof email !== 'string') {
-                return res.status(400).json({
-                    event_name: data.action,
-                    message: 'Email parameter is missing or invalid',
-                });
-            }
-
-            try {
-                const filter = new FilterBuilder().equals('email', email).build();
-                const response = await Profiles.getProfiles({
-                    filter,
-                    additionalFieldsProfile: ['subscriptions'],
-                });
-                const profiles = response.body.data;
-
-                if (!profiles || profiles.length === 0) {
-                    responseData = { profile_found: false };
-                } else {
-                    responseData = formatKlaviyoProfile(profiles[0]);
-                }
-            } catch (e) {
-                const errorObject = {
-                    event_name: data.action,
-                    message: e.message,
-                    errors: e.response?.data?.errors || e.body?.errors,
-                };
-
-                console.error(JSON.stringify(errorObject, null, 2));
-
-                return res.status(200).json(errorObject);
-            }
-
-            break;
-        }
-
-        case 'profile.subscribe_marketing': {
-            const email = data.subscribe_data?.customer?.email;
-            const channels = data.subscribe_data?.channels;
-            const phoneNumber = data.subscribe_data?.phone_number;
-
-            const validChannels = ['email', 'whatsapp'];
-            const activeChannels = Array.isArray(channels)
-                ? channels.filter((channel) => validChannels.includes(channel))
-                : [];
-
-            if (!email || typeof email !== 'string') {
-                return res.status(400).json({
-                    event_name: data.action,
-                    message: 'Email parameter is missing or invalid',
-                });
-            }
-
-            if (activeChannels.length === 0) {
-                return res.status(400).json({
-                    event_name: data.action,
-                    message: 'At least one valid channel ("email", "whatsapp") is required',
-                });
-            }
-
-            try {
-                const subscriptions = {};
-
-                if (activeChannels.includes('email')) {
-                    subscriptions.email = {
-                        marketing: {
-                            consent: 'SUBSCRIBED',
-                        },
-                    };
-                }
-
-                if (activeChannels.includes('whatsapp')) {
-                    subscriptions.whatsapp = {
-                        marketing: { 
-                            consent: 'SUBSCRIBED', 
-                        }, 
-                        transactional: { 
-                            consent: 'SUBSCRIBED', 
-                        } 
-                    };
-                }
-
-                const payload = {
-                    data: {
-                        type: 'profile-subscription-bulk-create-job',
-                        attributes: {
-                            profiles: {
-                                data: [
-                                    {
-                                        type: 'profile',
-                                        attributes: {
-                                            email,
-                                            phoneNumber: subscriptions.whatsapp ? phoneNumber : null,
-                                            subscriptions,
-                                        },
-                                    },
-                                ],
-                            },
-                        },
-                    },
-                };
-
-                await Profiles.bulkSubscribeProfiles(payload);
-            } catch (e) {
-                const errorObject = {
-                    event_name: data.action,
-                    message: e.message,
-                    errors: e.response?.data?.errors || e.body?.errors,
-                };
-
-                console.error(JSON.stringify(errorObject, null, 2));
-
-                // @ts-expect-error - This is a valid response
-                return res.json(errorObject).status(200);
-            }
-
-            break;
-        }
-
-        case 'profile.unsubscribe_marketing': {
-            const email = data.unsubscribe_data?.customer?.email;
-            const channels = data.unsubscribe_data?.channels;
-            const phoneNumber = data.unsubscribe_data?.phone_number;
-
-            const validChannels = ['email', 'whatsapp'];
-            const activeChannels = Array.isArray(channels)
-                ? channels.filter((channel) => validChannels.includes(channel))
-                : [];
-
-            if (!email || typeof email !== 'string') {
-                return res.status(400).json({
-                    event_name: data.action,
-                    message: 'Email parameter is missing or invalid',
-                });
-            }
-
-            if (activeChannels.length === 0) {
-                return res.status(400).json({
-                    event_name: data.action,
-                    message: 'At least one valid channel ("email", "whatsapp") is required',
-                });
-            }
-
-            try {
-                const subscriptions = {};
-
-                if (activeChannels.includes('email')) {
-                    subscriptions.email = {
-                        marketing: {
-                            consent: 'UNSUBSCRIBED'
-                        } 
-                    };
-                }
-
-                if (activeChannels.includes('whatsapp')) {
-                    subscriptions.whatsapp = {
-                        marketing: {
-                            consent: 'UNSUBSCRIBED'
-                        },
-                        transactional: { 
-                            consent: 'UNSUBSCRIBED', 
-                        } 
-                    };
-                }
-
-                const payload = {
-                    data: {
-                        type: 'profile-subscription-bulk-delete-job',
-                        attributes: {
-                            profiles: {
-                                data: [
-                                    {
-                                        type: 'profile',
-                                        attributes: {
-                                            email,
-                                            phoneNumber: subscriptions.whatsapp ? phoneNumber : null,
-                                            subscriptions,
-                                        },
-                                    },
-                                ],
-                            },
-                        },
-                    },
-                };
-
-                await Profiles.bulkUnsubscribeProfiles(payload);
-            } catch (e) {
-                const errorObject = {
-                    event_name: data.action,
-                    message: e.message,
-                    errors: e.response?.data?.errors || e.body?.errors,
                 };
 
                 console.error(JSON.stringify(errorObject, null, 2));
@@ -475,11 +257,6 @@ export default async (req, res) => {
             const membership_payment = reservation.membership_payments[0];
             const credit_payment = reservation.credit_payments[0];
 
-            let custom_properties = {};
-            if (membership_payment) {
-                custom_properties = await getMembershipCustomProperties(reservation.id);
-            }
-
             try {
                 await Events.createEvent({
                     data: {
@@ -502,9 +279,7 @@ export default async (req, res) => {
                                 reservation_id: reservation.id,
                                 class_session_id: reservation.class_session.id,
                                 package_name: credit_payment ? credit_payment.package_name : undefined,
-                                membership_name: membership_payment ? membership_payment.name : undefined,
-
-                                ...custom_properties
+                                membership_name: membership_payment ? membership_payment.name : undefined
                             },
                             profile: {
                                 data: {
@@ -975,57 +750,11 @@ export default async (req, res) => {
 
         }
 
-        case "analytics.send_event": {
-            const eventName = data.event_name;
-            const email = data.email;
-            const properties = data.properties;
-
-            try {
-                await Events.createEvent({
-                    data: {
-                        type: 'event',
-                        attributes: {
-                            metric: {
-                                data: {
-                                    type: 'metric',
-                                    attributes: {
-                                        name: eventName,
-                                    },
-                                },
-                            },
-                            properties: properties,
-                            profile: {
-                                data: {
-                                    type: 'profile',
-                                    attributes: {
-                                        email: email,
-                                    },
-                                },
-                            },
-                        },
-                    },
-                });
-            } catch (e) {
-                const errorObject = {
-                    event_name: eventName,
-                    message: e.message,
-                    errors: e.response?.data.errors,
-                };
-
-                console.error(JSON.stringify(errorObject, null, 2));
-                return res.json(errorObject).status(200);
-            }
-
-            break;
-
-            
-        }
-
         default:
             throw new Error('Unsupported Event');
     }
 
-    res.json({ success: true, data: responseData }).status(200);
+    res.json({ success: true }).status(200);
 };
 
 /**
@@ -1064,111 +793,6 @@ async function marianaTekFetcher(path) {
 
 }
 
-async function getMembershipCustomProperties(reservationId) {
-    let custom_properties = {};
-
-    try {
-        const reservationData = await marianaTekFetcher(
-            `reservations/${reservationId}?include=membership_transactions.membership_instance`
-        );
-
-        const membership_instance = reservationData?.included?.find(item => item.type === 'membership_instances');
-        if (membership_instance) {
-            const attrs = membership_instance.attributes;
-            const cycle = attrs.billing_cycles?.[0];
-            const commitment_length = attrs.commitment_length ?? 0;
-            const allowance = attrs.usage_interval_limit ?? 0;
-            const remaining = attrs.last_interval_remaining_usage_count ?? 0;
-            const sessionsUsed = allowance - remaining;
-            const isUnlimited = allowance >= 28;
-
-            const safeDate = (str) => {
-                if (!str) return null;
-                const d = new Date(str.replace(' ', 'T'));
-                return isNaN(d.getTime()) ? null : d;
-            };
-
-            const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
-            const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
-            const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date || data?.event_datetime);
-
-            let daysElapsed = 0;
-            let timeElapsedPct = 0;
-            if (cycleStartDate && checkInDate) {
-                const elapsedMs = Math.max(0, checkInDate.getTime() - cycleStartDate.getTime());
-                daysElapsed = Math.floor(elapsedMs / (1000 * 60 * 60 * 24));
-
-                const totalCycleMs = (cycleEndDate && cycleEndDate > cycleStartDate)
-                    ? (cycleEndDate.getTime() - cycleStartDate.getTime())
-                    : (31 * 24 * 60 * 60 * 1000);
-
-                timeElapsedPct = Math.min(100, Math.round((elapsedMs / totalCycleMs) * 100));
-            }
-
-            const usagePct = allowance > 0 ? (sessionsUsed / allowance) : 0;
-            const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
-
-            custom_properties = {
-                membership_instance_name: attrs.membership_name,
-                current_cycle_start_date: cycleStartDate,
-                current_cycle_end_date: cycleEndDate,
-                cycle_days_elapsed: daysElapsed,
-                cycle_elapsed_percentage: timeElapsedPct,
-                session_allowance: allowance,
-                sessions_remaining: remaining,
-                session_count: sessionsUsed,
-                session_usage_percentage: sessionUsedPct,
-                is_unlimited: isUnlimited,
-                commitment_length: commitment_length
-            };
-        }
-    } catch (e) {
-        console.error("Failed to get membership custom properties => ", e);
-    }
-
-    return custom_properties;
-}
-
-function formatKlaviyoProfile(rawProfile) {
-    const attributes = rawProfile.attributes || {};
-    const rawSub = attributes.subscriptions || {};
-
-    const mapSubChannel = (channelData, canReceiveKey) => {
-        if (!channelData || !channelData.consent || channelData.consent === 'NEVER_SUBSCRIBED') {
-            return null;
-        }
-        return {
-            consent: channelData.consent,
-            can_receive: channelData[canReceiveKey] ?? false,
-        };
-    };
-
-    return {
-        profile_found: true,
-        profile: {
-            id: rawProfile.id,
-            external_id: attributes.externalId || null,
-            email: attributes.email || null,
-            phone_number: attributes.phoneNumber || null,
-        },
-        subscriptions: {
-            email: {
-                marketing: mapSubChannel(rawSub.email?.marketing, 'canReceiveEmailMarketing'),
-            },
-            whatsapp: {
-                marketing: rawSub.whatsapp?.marketing ? {
-                    consent: rawSub.whatsapp.marketing.consent,
-                    can_receive: rawSub.whatsapp.marketing.canReceive ?? false,
-                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phoneNumber || null,
-                } : null,
-                transactional: rawSub.whatsapp?.transactional || null,
-                conversational: rawSub.whatsapp?.conversational || null,
-            },
-        },
-        properties: attributes.properties || {},
-    };
-}
-
 /**
  * This is a temporary workaround to create custom objects in Klaviyo. 
  * Once the package in NapkinIO is updated we will not need this anymmore.
@@ -1184,18 +808,6 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
         case 'profile.created': {
             user_id = data.profile.id;
             user_email = data.profile.email;
-
-            break;
-        }
-        case "profile.get_user_info": {
-
-            break;
-        }
-        case "profile.subscribe_marketing": {
-
-            break;
-        }
-        case "profile.unsubscribe_marketing": {
 
             break;
         }
@@ -1604,35 +1216,11 @@ const preOrderData = object({
     }).required()
 })
 
-const customerSchema = object({
-    email: string().email('Invalid email format').required('Email is required'),
-});
-
-const channelsSchema = array()
-    .of(string().oneOf(['email', 'whatsapp'], 'Invalid channel'))
-    .min(1, 'At least one valid channel is required')
-    .required('Channels are required');
-
-const subscribeSchema = object({
-    customer: customerSchema,
-    channels: channelsSchema,
-    phone_number: string().optional().nullable(),
-});
-
-const unsubscribeSchema = object({
-    customer: customerSchema,
-    channels: channelsSchema,
-    phone_number: string().optional().nullable(),
-});
-
 
 const requestBodySchema = object({
     action: mixed()
         .oneOf([
             'profile.created',
-            "profile.get_user_info",
-            "profile.subscribe_marketing",
-            "profile.unsubscribe_marketing",
             'reservation.created',
             'reservation.checkedin',
             'reservation.cancelled',
@@ -1641,8 +1229,7 @@ const requestBodySchema = object({
             'membership.deactivated',
             'order.completed',
             'order.completed_preorder',
-            'order.preordered_product',
-            'analytics.send_event',
+            'order.preordered_product'
         ])
         .required()
         .typeError('Action is required'),
@@ -1720,38 +1307,5 @@ const requestBodySchema = object({
         } else {
             return schema.strip();
         }
-    }),
-    customer: customerSchema.when('action', (action, schema) => {
-        if (typeof action !== 'string') {
-            throw new Error('Invalid action');
-        }
-
-        if (action === 'profile.get_user_info') {
-            return schema.required();
-        }
-
-        return schema.strip();
-    }),
-    subscribe_data: subscribeSchema.when('action', (action, schema) => {
-        if (typeof action !== 'string') {
-            throw new Error('Invalid action');
-        }
-
-        if (action === 'profile.subscribe_marketing') {
-            return schema.required();
-        }
-
-        return schema.strip();
-    }),
-    unsubscribe_data: unsubscribeSchema.when('action', (action, schema) => {
-        if (typeof action !== 'string') {
-            throw new Error('Invalid action');
-        }
-
-        if (action === 'profile.unsubscribe_marketing') {
-            return schema.required();
-        }
-
-        return schema.strip();
     }),
 });
