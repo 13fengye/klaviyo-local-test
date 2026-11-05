@@ -282,7 +282,7 @@ export default async (req, res) => {
                     subscriptions.whatsapp = {
                         marketing: { 
                             consent: 'SUBSCRIBED', 
-                        },
+                        }, 
                     };
                 }
 
@@ -1071,86 +1071,100 @@ const toDayMs = (d) => {
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 async function getMembershipCustomProperties(reservationId) {
+    let custom_properties = {};
+
     try {
         const reservationData = await marianaTekFetcher(
-            `reservations/${reservationId}?include=membership_transactions.membership_instance`
+            `reservations/${reservationId}?include=membership_transactions.membership_instance.current_membership_transaction`
         );
 
-        const membership_instance = reservationData?.included?.find(
+        const membershipInstance = reservationData?.included?.find(
             item => item.type === 'membership_instances'
         );
 
-        if (!membership_instance) {
-            return {};
+        const parentMembershipTransactionId = membershipInstance?.relationships?.current_membership_transaction?.data?.id;
+        if (parentMembershipTransactionId) {
+            const membershipTransaction = reservationData?.included?.find(
+                item => item.type === 'membership_transactions' && parentMembershipTransactionId === item.id
+            );
+            console.log(membershipTransaction);
+            if (membershipTransaction) {
+                const membershipInstanceAttrs = membershipInstance.attributes;
+                const membershipContractId = membershipInstance?.relationships?.membership_product?.data?.id || null;
+                const membershipName = membershipInstanceAttrs.membership_name;
+                const usageIntervalLimit = membershipInstanceAttrs.usage_interval_limit;
+                const commitmentLength = membershipInstanceAttrs.commitment_length ?? 0;
+                const renewalCount = membershipInstanceAttrs.renewal_count ?? 0;
+                const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
+
+                const membershipTransactionAttrs = membershipTransaction.attributes;
+
+                const sessionsUsed = membershipTransactionAttrs.usage_count ?? 0;
+                let totalSessionsIncluded;
+                let remaining = membershipTransactionAttrs.remaining_usage_count;
+                if (remaining !== null) {
+                    totalSessionsIncluded = sessionsUsed + remaining;
+                } else if (usageIntervalLimit !== null) {
+                    totalSessionsIncluded = usageIntervalLimit
+                } else {
+                    const match = membershipName.match(/(\d+)\s*(?:Session?|Class(?:es)?)/i);
+                    totalSessionsIncluded = match ? parseInt(match[1], 10) : 31;
+                }
+                remaining = totalSessionsIncluded - sessionsUsed;
+
+                const isUnlimited = totalSessionsIncluded >= 28;
+                const cycleStartDate = safeDate(membershipTransactionAttrs.payment_interval_start_date);
+                const cycleEndDate = safeDate(membershipTransactionAttrs.payment_interval_end_date);
+                const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date);
+
+                let daysElapsed = 0;
+                let timeElapsedPct = 0;
+
+                if (cycleStartDate && checkInDate) {
+                    const startDayMs = toDayMs(cycleStartDate);
+                    const endDayMs = toDayMs(cycleEndDate);
+                    const checkInDayMs = toDayMs(checkInDate);
+
+                    daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
+
+                    const totalDays = (cycleEndDate && cycleEndDate > cycleStartDate)
+                        ? Math.round((endDayMs - startDayMs) / MS_PER_DAY)
+                        : 31;
+
+                    timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+                }
+
+                const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
+                const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
+
+                custom_properties = {
+                    type: 'membership',
+
+                    membership_contract_id: membershipContractId,
+                    membership_instance_id: membershipInstance.id,
+                    membership_start_date: safeDate(membershipInstanceAttrs.start_date),
+                    membership_instance_name: membershipName,
+                    commitment_length: commitmentLength,
+                    is_rolling_contract: isRollingContract,
+
+                    current_cycle_start_date: cycleStartDate,
+                    current_cycle_end_date: cycleEndDate,
+                    cycle_days_elapsed: daysElapsed,
+                    cycle_elapsed_percentage: timeElapsedPct,
+                    total_sessions_included: totalSessionsIncluded,
+                    sessions_remaining: remaining,
+                    session_count: sessionsUsed,
+                    session_usage_percentage: sessionUsedPct,
+                    is_unlimited: isUnlimited
+                };
+            }
         }
-
-        const checkInDate = reservationData?.data?.attributes?.check_in_date;
-        return calculateMembershipProperties(membership_instance, checkInDate);
-
+        
     } catch (e) {
         console.error("Failed to get membership custom properties => ", e);
-        return {};
-    }
-}
-
-function calculateMembershipProperties(membershipInstance, checkInDateInput = null) {
-    if (!membershipInstance?.attributes) {
-        return {};
     }
 
-    const attrs = membershipInstance.attributes;
-    const cycle = attrs.billing_cycles?.[0];
-    const commitmentLength = attrs.commitment_length ?? 0;
-    const renewalCount = attrs.renewal_count ?? 0;
-    const totalSessionsIncluded = attrs.usage_interval_limit ?? 0;
-    const remaining = attrs.last_interval_remaining_usage_count ?? 0;
-    const sessionsUsed = totalSessionsIncluded - remaining;
-    const isUnlimited = totalSessionsIncluded >= 28;
-    const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
-
-    const cycleStartDate = safeDate(cycle?.start_datetime || attrs.payment_interval_start_date);
-    const cycleEndDate = safeDate(cycle?.end_datetime || attrs.payment_interval_end_date);
-    const checkInDate = safeDate(checkInDateInput);
-
-    let daysElapsed = 0;
-    let timeElapsedPct = 0;
-
-    if (cycleStartDate && checkInDate) {
-        const startDayMs = toDayMs(cycleStartDate);
-        const endDayMs = toDayMs(cycleEndDate);
-        const checkInDayMs = toDayMs(checkInDate);
-
-        daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
-
-        const totalDays = (cycleEndDate && cycleEndDate > cycleStartDate)
-            ? Math.round((endDayMs - startDayMs) / MS_PER_DAY)
-            : 31;
-
-        timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
-    }
-
-    const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
-    const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
-
-    return {
-        type: 'membership',
-        membership_contract_id: membershipInstance?.relationships?.membership_product?.data?.id || null,
-        membership_instance_id: membershipInstance.id,
-        membership_start_date: safeDate(attrs.start_date),
-        membership_instance_name: attrs.membership_name,
-        commitment_length: commitmentLength,
-        renewal_count: renewalCount,
-        current_cycle_start_date: cycleStartDate,
-        current_cycle_end_date: cycleEndDate,
-        cycle_days_elapsed: daysElapsed,
-        cycle_elapsed_percentage: timeElapsedPct,
-        total_sessions_included: totalSessionsIncluded,
-        sessions_remaining: remaining,
-        session_count: sessionsUsed,
-        session_usage_percentage: sessionUsedPct,
-        is_unlimited: isUnlimited,
-        is_rolling_contract: isRollingContract
-    };
+    return custom_properties;
 }
 
 async function getPackageCustomProperties(reservationId, fallbackRemaining) {
