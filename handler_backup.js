@@ -296,9 +296,6 @@ export default async (req, res) => {
                         marketing: { 
                             consent: 'SUBSCRIBED', 
                         }, 
-                        transactional: { 
-                            consent: 'SUBSCRIBED', 
-                        } 
                     };
                 }
 
@@ -370,7 +367,7 @@ export default async (req, res) => {
                     subscriptions.email = {
                         marketing: {
                             consent: 'UNSUBSCRIBED'
-                        } 
+                        },
                     };
                 }
 
@@ -379,9 +376,6 @@ export default async (req, res) => {
                         marketing: {
                             consent: 'UNSUBSCRIBED'
                         },
-                        transactional: { 
-                            consent: 'UNSUBSCRIBED', 
-                        } 
                     };
                 }
 
@@ -1233,17 +1227,6 @@ async function getPackageCustomProperties(reservationId, fallbackRemaining) {
 
 function formatKlaviyoProfile(rawProfile) {
     const attributes = rawProfile.attributes || {};
-    const rawSub = attributes.subscriptions || {};
-
-    const mapSubChannel = (channelData, canReceiveKey) => {
-        if (!channelData || !channelData.consent || channelData.consent === 'NEVER_SUBSCRIBED') {
-            return null;
-        }
-        return {
-            consent: channelData.consent,
-            can_receive: channelData[canReceiveKey] ?? false,
-        };
-    };
 
     return {
         profile_found: true,
@@ -1253,27 +1236,14 @@ function formatKlaviyoProfile(rawProfile) {
             email: attributes.email || null,
             phone_number: attributes.phone_number || null,
         },
-        subscriptions: {
-            email: {
-                marketing: mapSubChannel(rawSub.email?.marketing, 'canReceiveEmailMarketing'),
-            },
-            whatsapp: {
-                marketing: rawSub.whatsapp?.marketing ? {
-                    consent: rawSub.whatsapp.marketing.consent,
-                    can_receive: rawSub.whatsapp.marketing.canReceive ?? false,
-                    phone_number: rawSub.whatsapp.marketing.phoneNumber || attributes.phone_number || null,
-                } : null,
-                transactional: rawSub.whatsapp?.transactional || null,
-                conversational: rawSub.whatsapp?.conversational || null,
-            },
-        },
+        subscriptions: attributes.subscriptions || {},
         properties: attributes.properties || {},
     };
 }
 
 const BASE_URL = "https://a.klaviyo.com/api";
 const REVISION = "2026-07-15";
-const DATA_SOURCE_ID = "01KW1PYWRQNMT96EEXSQNP74S7";
+const DATA_SOURCE_ID = "01K1G5JPFAVHJ5BP1SWEEE82RH";
 
 /**
  * Generic Klaviyo API helper using native `fetch`.
