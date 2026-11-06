@@ -313,6 +313,7 @@ async function fetchAndSyncActivePackages() {
     }
 
     function tryBuildReady(item, email) {
+        const attrs = item.attributes;
 
         const usage = computePackageUsage(attrs);
         const expiry = attrs.expiration_datetime ?? null;
