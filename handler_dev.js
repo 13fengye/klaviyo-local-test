@@ -1364,6 +1364,23 @@ class KlaviyoApi {
         );
     }
 
+    /** POST a data-source-record bulk-delete job (records only need their id). */
+    async deleteDataSourceRecords(recordIds) {
+        if (!recordIds || recordIds.length === 0) return null;
+        const records = recordIds.map((id) => ({
+            type: "data-source-record",
+            attributes: {
+                record: {
+                    object_record: { id }
+                }
+            }
+        }));
+        return this.post(
+            '/data-source-record-bulk-delete-jobs',
+            this.buildDataSourceRecordsPayload(records)
+        );
+    }
+
     /**
      * GET /profiles — same-ish signature as the SDK's Profiles.getProfiles so
      * callers can keep using FilterBuilder and additionalFieldsProfile without
@@ -1473,81 +1490,211 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
 
     if (!user_id || !user_email) {
         console.log("Failed to find user id/email => ", data.action);
+        return;
     }
 
     /**
-     * Fetch membership instances and credit transactions data from MT
+     * Fetch membership instances (with current transaction included) and all
+     * credit transactions for this user from MT.
      */
     const allMembershipsResults = await marianaTekFetcher(
-        `membership_instances?user=${user_id}`
+        `membership_instances?user=${user_id}&include=current_membership_transaction`
     );
 
     const allPackagesResults = await marianaTekFetcher(
         `credit_transactions?user=${user_id}&page_size=100`
     );
 
-    /**
-     * Parse MT data to generate appropriate object for Klaviyo
-     */
-    const membershipObjects =
-        allMembershipsResults?.data.map(({ id, attributes }) => ({
-            type: "data-source-record",
-            attributes: {
-                record: {
-                    type: "membership",
-                    id: id,
-                    name: attributes.membership_name,
-                    status: attributes.status,
-                    startDate: attributes.start_date
-                        ? new Date(attributes.start_date)
-                        : null,
-                    endDate: attributes.end_date ? new Date(attributes.end_date) : null,
-                    email: user_email,
+    const memberships = allMembershipsResults?.data || [];
+    const includedTx = new Map(
+        (allMembershipsResults?.included || [])
+            .filter((i) => i.type === 'membership_transactions')
+            .map((i) => [i.id, i.attributes])
+    );
+    const creditTxs = allPackagesResults?.data || [];
+
+    // Collect positive (purchase) package dates for has_additional_package_purchase.
+    const packagePurchaseDates = creditTxs
+        .filter((t) => t.relationships?.parent_credit_transaction?.data === null)
+        .map((t) => t.attributes.transaction_datetime)
+        .filter(Boolean);
+
+    // --- helpers -----------------------------------------------------------
+    const COMMITMENT_INTERVALS = new Set(['DY', 'WK', 'MO', 'YR']);
+    const SESSION_NAME_RE = /(\d+)\s*(?:Session?|Class(?:es)?)/i;
+    const NOW_MS = Date.now();
+
+    const computeCommitmentExpiry = (attrs) => {
+        const { commitment_length: length, payment_interval: interval, start_date: start } = attrs;
+        if (!(length > 0) || !COMMITMENT_INTERVALS.has(interval)) return null;
+        const date = safeDate(start);
+        if (!date) return null;
+        if (interval === 'DY' || interval === 'WK') {
+            date.setUTCDate(date.getUTCDate() + length * (interval === 'WK' ? 7 : 1));
+        } else {
+            const originalDay = date.getUTCDate();
+            const months = length * (interval === 'YR' ? 12 : 1);
+            date.setUTCDate(1);
+            date.setUTCMonth(date.getUTCMonth() + months);
+            const lastDay = new Date(date.getTime());
+            lastDay.setUTCMonth(lastDay.getUTCMonth() + 1, 0);
+            date.setUTCDate(Math.min(originalDay, lastDay.getUTCDate()));
+        }
+        return date.toISOString().replace(/\.000Z$/, 'Z');
+    };
+
+    const resolveExpiryDate = (attrs) => {
+        const computed = computeCommitmentExpiry(attrs);
+        if (computed && new Date(computed).getTime() > NOW_MS) return computed;
+        return attrs.next_charge_date ?? attrs.payment_interval_end_date ?? null;
+    };
+
+    const computeSessionUsage = (attrs, tx) => {
+        const used = tx.usage_count ?? 0;
+        const remainingRaw = tx.remaining_usage_count;
+        let total;
+        if (remainingRaw != null) total = used + remainingRaw;
+        else if (attrs.usage_interval_limit != null) total = attrs.usage_interval_limit;
+        else {
+            const m = (attrs.membership_name || '').match(SESSION_NAME_RE);
+            total = m ? parseInt(m[1], 10) : 31;
+        }
+        return {
+            total,
+            remaining: Math.max(0, total - used),
+            pct: total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0,
+        };
+    };
+
+    const hasPurchaseInCycle = (cycleStart, cycleEnd) => {
+        if (!cycleStart) return false;
+        const start = cycleStart.getTime();
+        const end = cycleEnd ? cycleEnd.getTime() : Infinity;
+        return packagePurchaseDates.some((dt) => {
+            const t = safeDate(dt)?.getTime();
+            return t != null && t >= start && t <= end;
+        });
+    };
+
+    // Wrap an object_record + email relationship into a Klaviyo data-source-record.
+    const toRecord = (objectRecord, email) => ({
+        type: "data-source-record",
+        attributes: {
+            record: {
+                object_record: objectRecord,
+                relationships: {
+                    Email: [{ id: email, email }]
                 }
-
             }
-        })) || [];
+        }
+    });
 
-    const packageObjects =
-        allPackagesResults?.data.map(({ id, attributes }) => ({
-            type: "data-source-record",
-            attributes: {
-                record: {
-                    type: "package",
-                    id: id,
-                    name: attributes.credit_name,
-                    status: attributes.is_expired ? "expired" : "active",
-                    startDate: attributes.transaction_datetime
-                        ? new Date(attributes.transaction_datetime)
-                        : null,
-                    endDate: attributes.expiration_datetime
-                        ? new Date(attributes.expiration_datetime)
-                        : null,
-                    email: user_email,
-                }
-            }
-        })) || [];
+    // --- build memberships -------------------------------------------------
+    const activeMembershipRecords = [];
+    const inactiveMembershipIds = [];
 
-    const records = [
-        ...(membershipObjects || []),
-        ...(packageObjects || [])
-    ];
+    for (const m of memberships) {
+        const attrs = m.attributes;
+        const isActive = attrs.status === 'active';
+        const txId = m.relationships?.current_membership_transaction?.data?.id;
+        const tx = (txId && includedTx.get(txId)) || {};
 
-    if (records.length > 0) {
-        const klaviyoApi = new KlaviyoApi();
+        if (!isActive) {
+            inactiveMembershipIds.push(m.id);
+            continue;
+        }
 
+        const cycleStartRaw = tx.payment_interval_start_date || attrs.payment_interval_start_date;
+        const cycleEndRaw = tx.payment_interval_end_date || attrs.payment_interval_end_date;
+        const cycleStart = safeDate(cycleStartRaw);
+        const cycleEnd = safeDate(cycleEndRaw);
+        const usage = computeSessionUsage(attrs, tx);
+        const hasPkg = hasPurchaseInCycle(cycleStart, cycleEnd);
+
+        activeMembershipRecords.push(toRecord({
+            id: m.id,
+            name: attrs.membership_name,
+            start_date: attrs.start_date || attrs.calculated_start_datetime || null,
+            expiry_date: resolveExpiryDate(attrs),
+            is_expired: false,
+            membership_status: attrs.status,
+            type: 'membership',
+            current_cycle_end_date: cycleEndRaw || null,
+            session_usage_percentage: usage.pct,
+            session_remaining: usage.remaining,
+            total_sessions_included: usage.total,
+            has_additional_package_purchase: hasPkg,
+        }, user_email));
+    }
+
+    // --- build packages (parent credit transactions only) ------------------
+    const activePackageRecords = [];
+    const inactivePackageIds = [];
+
+    for (const t of creditTxs) {
+        if (t.relationships?.parent_credit_transaction?.data !== null) continue;
+        const attrs = t.attributes;
+        const isActive = !attrs.is_expired;
+
+        const remaining = attrs.remaining_credits_cache ?? 0;
+        if (!isActive || remaining === 0) {
+            inactivePackageIds.push(t.id);
+            continue;
+        }
+
+        const total = attrs.transaction_amount ?? 0;
+        const used = Math.max(0, total - remaining);
+        const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+
+        activePackageRecords.push(toRecord({
+            id: t.id,
+            name: attrs.credit_name,
+            start_date: attrs.transaction_datetime ?? null,
+            expiry_date: attrs.expiration_datetime ?? null,
+            is_expired: false,
+            membership_status: 'active',
+            type: 'package',
+            current_cycle_end_date: attrs.expiration_datetime ?? null,
+            session_usage_percentage: pct,
+            session_remaining: remaining,
+            total_sessions_included: total,
+            has_additional_package_purchase: false,
+        }, user_email));
+    }
+
+    // --- push to Klaviyo: upsert active, delete inactive -------------------
+    const klaviyoApi = new KlaviyoApi();
+    const recordsToUpsert = [...activeMembershipRecords, ...activePackageRecords];
+    const idsToDelete = [...inactiveMembershipIds, ...inactivePackageIds];
+
+    if (recordsToUpsert.length > 0) {
         try {
-            await klaviyoApi.createDataSourceRecords([
-                ...membershipObjects,
-                ...packageObjects
-            ]);
+            await klaviyoApi.createDataSourceRecords(recordsToUpsert);
         } catch (e) {
             console.error(
-                "Failed to create data source records",
+                "Failed to upsert data source records",
                 e.response?.data || e.body || e.message
             );
         }
     }
+
+    if (idsToDelete.length > 0) {
+        try {
+            await klaviyoApi.deleteDataSourceRecords(idsToDelete);
+        } catch (e) {
+            console.error(
+                "Failed to delete data source records",
+                e.response?.data || e.body || e.message
+            );
+        }
+    }
+
+    console.log(
+        `[passive-sync] user=${user_id} action=${data.action} ` +
+        `upsert=${recordsToUpsert.length} delete=${idsToDelete.length} ` +
+        `(memberships: ${activeMembershipRecords.length}+${inactiveMembershipIds.length}, ` +
+        `packages: ${activePackageRecords.length}+${inactivePackageIds.length})`
+    );
 }
 
 
