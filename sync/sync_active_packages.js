@@ -28,6 +28,73 @@ const FAILED_FILE = path.join(__dirname, 'failed_packages.json');
 const PAGE_SIZE = 200;           // MT API per_page hard limit for credit_transactions
 const PAGE_THROTTLE_MS = 200;
 const MAX_FETCH_RETRIES = 4;     // network / 5xx retries with backoff
+const NOW_MS = Date.now();        // fixed "now" for consistency within a single run
+
+// ================= Klaviyo sync =================
+const KLAVIYO_API_KEY = process.env.KLAVIYO_PRIVATE_API_KEY;
+const KLAVIYO_DATA_SOURCE_ID = process.env.KLAVIYO_DATA_SOURCE_ID || '01K1G5JPFAVHJ5BP1SWEEE82RH';
+const KLAVIYO_BASE_URL = 'https://a.klaviyo.com/api';
+const KLAVIYO_REVISION = '2026-07-15';
+const KLAVIYO_BATCH_SIZE = 500;
+const KLAVIYO_HEADERS = {
+    accept: 'application/vnd.api+json',
+    revision: KLAVIYO_REVISION,
+    'content-type': 'application/vnd.api+json',
+    Authorization: `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
+};
+
+// Convert local ready records into Klaviyo data-source-record shape.
+function buildKlaviyoRecords(readyRecords) {
+    return readyRecords.map(({ user_email, ...object_record }) => ({
+        type: 'data-source-record',
+        attributes: {
+            record: {
+                object_record,
+                relationships: {
+                    Email: [{ id: user_email, email: user_email }],
+                },
+            },
+        },
+    }));
+}
+
+async function syncToKlaviyo(readyRecords) {
+    if (!KLAVIYO_API_KEY) {
+        console.warn('  ⚠️ KLAVIYO_PRIVATE_API_KEY not set, skipping Klaviyo sync');
+        return 0;
+    }
+    if (readyRecords.length === 0) return 0;
+
+    const records = buildKlaviyoRecords(readyRecords);
+    let synced = 0;
+    for (let i = 0; i < records.length; i += KLAVIYO_BATCH_SIZE) {
+        const batch = records.slice(i, i + KLAVIYO_BATCH_SIZE);
+        const payload = {
+            data: {
+                type: 'data-source-record-bulk-create-job',
+                attributes: { 'data-source-records': { data: batch } },
+                relationships: {
+                    'data-source': { data: { type: 'data-source', id: KLAVIYO_DATA_SOURCE_ID } },
+                },
+            },
+        };
+        const res = await fetch(`${KLAVIYO_BASE_URL}/data-source-record-bulk-create-jobs`, {
+            method: 'POST',
+            headers: KLAVIYO_HEADERS,
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            throw new Error(`Klaviyo bulk-create [${res.status}]: ${body.slice(0, 400)}`);
+        }
+        synced += batch.length;
+        console.log(`  ✅ Klaviyo upserted ${synced}/${records.length}`);
+        if (i + KLAVIYO_BATCH_SIZE < records.length) {
+            await new Promise((r) => setTimeout(r, 200));
+        }
+    }
+    return synced;
+}
 
 // ================= MT API helpers =================
 // Strip trailing slashes from the path segment: production MT treats
@@ -180,10 +247,12 @@ async function fetchAndSyncActivePackages() {
     }
     console.log(`  ✅ Scanned ${scanned} active rows, kept ${packages.length} package roots`);
 
-    // Stage 2: serialize + match email — no awaits inside the loop
+    // Stage 2a: serialize + match email from CSV; collect unmatched user_ids
     console.log('\n🚀 Stage 2/3: Serialize + match email + derive fields');
     const readyRecords = [];
     const failedRecords = [];
+    const skipped = [];
+    const unmatchedUsers = new Map();  // userId → array of package items needing email
 
     for (const item of packages) {
         const attrs = item.attributes;
@@ -191,17 +260,74 @@ async function fetchAndSyncActivePackages() {
         const email = customerMap[userId];
 
         if (!email) {
-            failedRecords.push({
-                reason: userId ? 'email_not_matched' : 'user_not_found',
-                user_id: userId ?? null,
-                credit_transaction_id: item.id,
-                credit_name: attrs.credit_name,
-            });
+            if (userId) {
+                // Queue for MT API fallback lookup
+                if (!unmatchedUsers.has(userId)) unmatchedUsers.set(userId, []);
+                unmatchedUsers.get(userId).push(item);
+            } else {
+                failedRecords.push({
+                    reason: 'user_not_found',
+                    user_id: null,
+                    credit_transaction_id: item.id,
+                    credit_name: attrs.credit_name,
+                });
+            }
             continue;
         }
+        tryBuildReady(item, email);
+    }
+
+    // Stage 2b: bulk-fetch emails via MT /users/{id} for unmatched users
+    if (unmatchedUsers.size > 0) {
+        console.log(`  🔧 CSV missed ${unmatchedUsers.size} user(s), fetching from MT /users/{id}...`);
+        const uniqueIds = [...unmatchedUsers.keys()];
+        const fetched = await Promise.all(uniqueIds.map(async (uid) => {
+            try {
+                const r = await mtFetch(`/users/${uid}`);
+                const email = r?.data?.attributes?.email?.toLowerCase();
+                if (email?.includes('@')) return [uid, email];
+                return [uid, null];
+            } catch (e) {
+                console.warn(`  ⚠️ MT /users/${uid} failed: ${e.message}`);
+                return [uid, null];
+            }
+        }));
+        const fetchedMap = new Map(fetched);
+        for (const [uid, items] of unmatchedUsers) {
+            const email = fetchedMap.get(uid);
+            if (email) {
+                for (const item of items) tryBuildReady(item, email);
+            } else {
+                for (const item of items) {
+                    const attrs = item.attributes;
+                    failedRecords.push({
+                        reason: 'email_not_matched',
+                        user_id: uid,
+                        credit_transaction_id: item.id,
+                        credit_name: attrs.credit_name,
+                    });
+                }
+            }
+        }
+        console.log(`  ✅ MT fallback resolved ${[...fetchedMap.values()].filter(Boolean).length}/${unmatchedUsers.size}`);
+    }
+
+    function tryBuildReady(item, email) {
 
         const usage = computePackageUsage(attrs);
         const expiry = attrs.expiration_datetime ?? null;
+
+        // Skip records that are already expired or fully consumed — these
+        // should be removed from Klaviyo rather than re-upserted.
+        const expired = expiry ? new Date(expiry).getTime() <= NOW_MS : false;
+        if (expired || usage.remaining === 0) {
+            skipped.push({
+                id: item.id,
+                reason: expired ? 'expired' : 'no_sessions_remaining',
+                expiry_date: expiry,
+                session_remaining: usage.remaining,
+            });
+        }
 
         readyRecords.push({
             id: item.id,
@@ -220,20 +346,33 @@ async function fetchAndSyncActivePackages() {
         });
     }
 
-    // Stage 3: persist to disk
-    console.log('\n🚀 Stage 3/3: Persist ready / failed records');
+    // Stage 3: persist to disk + sync to Klaviyo
+    console.log('\n🚀 Stage 3/3: Persist + sync to Klaviyo');
     fs.writeFileSync(READY_FILE, JSON.stringify(readyRecords, null, 2), 'utf-8');
     fs.writeFileSync(FAILED_FILE, JSON.stringify(failedRecords, null, 2), 'utf-8');
     console.log(`  ✅ ready: ${readyRecords.length} → ${READY_FILE}`);
     console.log(`  ✅ failed: ${failedRecords.length} → ${FAILED_FILE}`);
 
+    let klaviyoSynced = 0;
+    try {
+        klaviyoSynced = await syncToKlaviyo(readyRecords);
+    } catch (err) {
+        console.error('  ❌ Klaviyo sync failed:', err.message);
+        // Keep ready_packages.json on disk for a manual retry.
+    }
+
     const unmatched = failedRecords.filter((f) => f.reason === 'email_not_matched').length;
+    const skippedExpired = skipped.filter((s) => s.reason === 'expired').length;
+    const skippedEmpty = skipped.filter((s) => s.reason === 'no_sessions_remaining').length;
 
     console.log('\n================ Summary ================');
     console.log(`Active rows scanned   : ${scanned}`);
     console.log(`Package roots         : ${packages.length}`);
     console.log(`Matched emails        : ${readyRecords.length}`);
     console.log(`Unmatched emails      : ${unmatched}`);
+    console.log(`Skipped (expired)     : ${skippedExpired}`);
+    console.log(`Skipped (remaining=0) : ${skippedEmpty}`);
+    console.log(`Klaviyo upserted      : ${klaviyoSynced}`);
     console.log(`Klaviyo ready file    : ${READY_FILE}`);
     console.log(`Failed records file   : ${FAILED_FILE}`);
     console.log('==========================================');

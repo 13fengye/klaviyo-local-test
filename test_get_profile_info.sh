@@ -8,6 +8,6 @@ curl -X POST ${BASE_URL}/api/events \
     "tenant": "onerebel_app",
     "event_datetime": "2026-10-09T12:00:00Z",
     "customer": {
-      "email": "zhentong+test@leisurelabs.co.uk"
+      "email": "zhentong+3@leisurelabs.co.uk"
     }
   }'

@@ -28,6 +28,74 @@ const COMMITMENT_INTERVALS = new Set(['DY', 'WK', 'MO', 'YR']);
 const SESSION_NAME_RE = /(\d+)\s*(?:Session?|Class(?:es)?)/i;
 const NOW_MS = Date.now();       // Fixed "now" for consistency within a single run
 
+// ================= Klaviyo sync =================
+const KLAVIYO_API_KEY = process.env.KLAVIYO_PRIVATE_API_KEY;
+const KLAVIYO_DATA_SOURCE_ID = process.env.KLAVIYO_DATA_SOURCE_ID || '01K1G5JPFAVHJ5BP1SWEEE82RH';
+const KLAVIYO_BASE_URL = 'https://a.klaviyo.com/api';
+const KLAVIYO_REVISION = '2026-07-15';
+const KLAVIYO_BATCH_SIZE = 500;
+const KLAVIYO_HEADERS = {
+    accept: 'application/vnd.api+json',
+    revision: KLAVIYO_REVISION,
+    'content-type': 'application/vnd.api+json',
+    Authorization: `Klaviyo-API-Key ${KLAVIYO_API_KEY}`,
+};
+
+// Convert local ready records into Klaviyo data-source-record shape:
+// object_record carries the custom-object fields; relationships.Email links
+// the record to the profile by email.
+function buildKlaviyoRecords(readyRecords) {
+    return readyRecords.map(({ user_email, ...object_record }) => ({
+        type: 'data-source-record',
+        attributes: {
+            record: {
+                object_record,
+                relationships: {
+                    Email: [{ id: user_email, email: user_email }],
+                },
+            },
+        },
+    }));
+}
+
+async function syncToKlaviyo(readyRecords) {
+    if (!KLAVIYO_API_KEY) {
+        console.warn('  ⚠️ KLAVIYO_PRIVATE_API_KEY not set, skipping Klaviyo sync');
+        return 0;
+    }
+    if (readyRecords.length === 0) return 0;
+
+    const records = buildKlaviyoRecords(readyRecords);
+    let synced = 0;
+    for (let i = 0; i < records.length; i += KLAVIYO_BATCH_SIZE) {
+        const batch = records.slice(i, i + KLAVIYO_BATCH_SIZE);
+        const payload = {
+            data: {
+                type: 'data-source-record-bulk-create-job',
+                attributes: { 'data-source-records': { data: batch } },
+                relationships: {
+                    'data-source': { data: { type: 'data-source', id: KLAVIYO_DATA_SOURCE_ID } },
+                },
+            },
+        };
+        const res = await fetch(`${KLAVIYO_BASE_URL}/data-source-record-bulk-create-jobs`, {
+            method: 'POST',
+            headers: KLAVIYO_HEADERS,
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            throw new Error(`Klaviyo bulk-create [${res.status}]: ${body.slice(0, 400)}`);
+        }
+        synced += batch.length;
+        console.log(`  ✅ Klaviyo upserted ${synced}/${records.length}`);
+        if (i + KLAVIYO_BATCH_SIZE < records.length) {
+            await new Promise((r) => setTimeout(r, 200));
+        }
+    }
+    return synced;
+}
+
 // ================= MT API helpers =================
 async function mtFetch(queryPath) {
     const url = `${BASE_URL}${queryPath}`;
@@ -192,8 +260,7 @@ async function fetchAndSyncActiveMemberships() {
         process.stdout.write(`  [Stage 1] Page ${page}${page === 1 ? '' : `/${totalPages}`} → ${url} ... `);
         const t0 = Date.now();
         const json = await mtFetch(url);
-        // totalPages = json.meta?.pagination?.pages ?? totalPages;
-        totalPages = 1;
+        totalPages = json.meta?.pagination?.pages ?? totalPages;
         const count = json.data?.length ?? 0;
         const includedCount = (json.included || []).filter((i) => i.type === 'membership_transactions').length;
         process.stdout.write(`OK (${count} memberships + ${includedCount} included_tx, ${Date.now() - t0}ms)\n`);
@@ -241,6 +308,7 @@ async function fetchAndSyncActiveMemberships() {
     console.log('\n🚀 Stage 3/4: Serialize + match email + derive fields');
     const readyRecords = [];
     const failedRecords = [];
+    const skipped = [];
 
     for (const item of memberships) {
         const userId = item.relationships?.user?.data?.id;
@@ -265,12 +333,26 @@ async function fetchAndSyncActiveMemberships() {
         const cycleEnd = safeDate(cycleEndRaw);
         const usage = computeSessionUsage(attrs, tx);
         const hasPkg = hasPurchaseInCycle(packageDatesByUser.get(userId) || [], cycleStart, cycleEnd);
+        const expiryDate = resolveExpiryDate(attrs);
+
+        // Skip records that are already expired or fully consumed — these
+        // should be removed from Klaviyo rather than re-upserted.
+        const expired = expiryDate ? new Date(expiryDate).getTime() <= NOW_MS : false;
+        if (expired || usage.remaining === 0) {
+            skipped.push({
+                id: item.id,
+                reason: expired ? 'expired' : 'no_sessions_remaining',
+                expiry_date: expiryDate,
+                session_remaining: usage.remaining,
+            });
+            continue;
+        }
 
         readyRecords.push({
             id: item.id,
             name: attrs.membership_name,
             start_date: attrs.start_date || attrs.calculated_start_datetime,
-            expiry_date: resolveExpiryDate(attrs),
+            expiry_date: expiryDate,
             is_expired: false,
             membership_status: attrs.status,
             type: 'membership',
@@ -282,20 +364,33 @@ async function fetchAndSyncActiveMemberships() {
         });
     }
 
-    // Stage 4: persist to disk + (commented-out) Klaviyo sync
-    console.log('\n🚀 Stage 4/4: Persist ready / failed records');
+    // Stage 4: persist to disk + sync to Klaviyo
+    console.log('\n🚀 Stage 4/4: Persist + sync to Klaviyo');
     fs.writeFileSync(READY_FILE, JSON.stringify(readyRecords, null, 2), 'utf-8');
     fs.writeFileSync(FAILED_FILE, JSON.stringify(failedRecords, null, 2), 'utf-8');
     console.log(`  ✅ ready: ${readyRecords.length} → ${READY_FILE}`);
     console.log(`  ✅ failed: ${failedRecords.length} → ${FAILED_FILE}`);
 
+    let klaviyoSynced = 0;
+    try {
+        klaviyoSynced = await syncToKlaviyo(readyRecords);
+    } catch (err) {
+        console.error('  ❌ Klaviyo sync failed:', err.message);
+        // Keep ready_records.json on disk for a manual retry.
+    }
+
     const unmatched = failedRecords.filter((f) => f.reason === 'email_not_matched').length;
+    const skippedExpired = skipped.filter((s) => s.reason === 'expired').length;
+    const skippedEmpty = skipped.filter((s) => s.reason === 'no_sessions_remaining').length;
 
     console.log('\n================ Summary ================');
     console.log(`MT active total       : ${memberships.length}`);
     console.log(`Matched emails        : ${readyRecords.length}`);
     console.log(`Unmatched emails      : ${unmatched}`);
+    console.log(`Skipped (expired)     : ${skippedExpired}`);
+    console.log(`Skipped (remaining=0) : ${skippedEmpty}`);
     console.log(`Unique users          : ${uniqueUserIds.length}`);
+    console.log(`Klaviyo upserted      : ${klaviyoSynced}`);
     console.log(`Klaviyo ready file    : ${READY_FILE}`);
     console.log(`Failed records file   : ${FAILED_FILE}`);
     console.log('==========================================');
