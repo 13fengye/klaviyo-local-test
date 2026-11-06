@@ -1243,8 +1243,8 @@ function formatKlaviyoProfile(rawProfile) {
 
 const BASE_URL = "https://a.klaviyo.com/api";
 const REVISION = "2026-07-15";
-const DATA_SOURCE_ID = process.env.KLAVIYO_DATA_SOURCE_ID;
-const OBJECT_TYPE_ID = process.env.KLAVIYO_OBJECT_TYPE_ID;
+const DATA_SOURCE_ID = process.env["KLAVIYO_DATA_SOURCE_ID"];
+const OBJECT_TYPE_ID = process.env["KLAVIYO_OBJECT_TYPE_ID"];
 
 /**
  * Generic Klaviyo API helper using native `fetch`.
