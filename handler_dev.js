@@ -1087,7 +1087,6 @@ async function getMembershipCustomProperties(reservationId) {
             const membershipTransaction = reservationData?.included?.find(
                 item => item.type === 'membership_transactions' && parentMembershipTransactionId === item.id
             );
-            console.log(membershipTransaction);
             if (membershipTransaction) {
                 const membershipInstanceAttrs = membershipInstance.attributes;
                 const membershipContractId = membershipInstance?.relationships?.membership_product?.data?.id || null;
@@ -1244,7 +1243,8 @@ function formatKlaviyoProfile(rawProfile) {
 
 const BASE_URL = "https://a.klaviyo.com/api";
 const REVISION = "2026-07-15";
-const DATA_SOURCE_ID = "01K1G5JPFAVHJ5BP1SWEEE82RH";
+const DATA_SOURCE_ID = process.env.KLAVIYO_DATA_SOURCE_ID;
+const OBJECT_TYPE_ID = process.env.KLAVIYO_OBJECT_TYPE_ID;
 
 /**
  * Generic Klaviyo API helper using native `fetch`.
@@ -1364,21 +1364,30 @@ class KlaviyoApi {
         );
     }
 
-    /** POST a data-source-record bulk-delete job (records only need their id). */
+    /**
+     * Delete records via the object-records bulk-delete job.
+     * Klaviyo has no data-source-record delete endpoint; deletion must go
+     * through /object-record-bulk-delete-jobs with composite record ids of
+     * the form "{object-type-id}:::{record-id}".
+     */
     async deleteDataSourceRecords(recordIds) {
         if (!recordIds || recordIds.length === 0) return null;
-        const records = recordIds.map((id) => ({
-            type: "data-source-record",
-            attributes: {
-                record: {
-                    object_record: { id }
+        const compositeIds = recordIds.map((id) => `${OBJECT_TYPE_ID}:::${id}`);
+        const payload = {
+            data: {
+                type: "object-record-bulk-delete-job",
+                attributes: {},
+                relationships: {
+                    "object-records": {
+                        data: compositeIds.map((id) => ({
+                            type: "object-record",
+                            id
+                        }))
+                    }
                 }
             }
-        }));
-        return this.post(
-            '/data-source-record-bulk-delete-jobs',
-            this.buildDataSourceRecordsPayload(records)
-        );
+        };
+        return this.post('/object-record-bulk-delete-jobs', payload);
     }
 
     /**
@@ -1495,15 +1504,30 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
 
     /**
      * Fetch membership instances (with current transaction included) and all
-     * credit transactions for this user from MT.
+     * credit transactions for this user from MT, in parallel.
      */
-    const allMembershipsResults = await marianaTekFetcher(
-        `membership_instances?user=${user_id}&include=current_membership_transaction`
-    );
+    const fetchAllCreditTransactions = async () => {
+        const rows = [];
+        let page = 1;
+        let totalPages = 1;
+        do {
+            const res = await marianaTekFetcher(
+                `credit_transactions?user=${user_id}&page_size=100&page=${page}`
+            );
+            const data = res?.data || [];
+            rows.push(...data);
+            totalPages = res?.meta?.pagination?.pages || 1;
+            page++;
+        } while (page <= totalPages);
+        return rows;
+    };
 
-    const allPackagesResults = await marianaTekFetcher(
-        `credit_transactions?user=${user_id}&page_size=100`
-    );
+    const [allMembershipsResults, creditTransactions] = await Promise.all([
+        marianaTekFetcher(
+            `membership_instances?user=${user_id}&include=current_membership_transaction`
+        ),
+        fetchAllCreditTransactions(),
+    ]);
 
     const memberships = allMembershipsResults?.data || [];
     const includedTx = new Map(
@@ -1511,10 +1535,9 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
             .filter((i) => i.type === 'membership_transactions')
             .map((i) => [i.id, i.attributes])
     );
-    const creditTxs = allPackagesResults?.data || [];
 
     // Collect positive (purchase) package dates for has_additional_package_purchase.
-    const packagePurchaseDates = creditTxs
+    const packagePurchaseDates = creditTransactions
         .filter((t) => t.relationships?.parent_credit_transaction?.data === null)
         .map((t) => t.attributes.transaction_datetime)
         .filter(Boolean);
@@ -1610,12 +1633,21 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
         const cycleEnd = safeDate(cycleEndRaw);
         const usage = computeSessionUsage(attrs, tx);
         const hasPkg = hasPurchaseInCycle(cycleStart, cycleEnd);
+        const expiryDate = resolveExpiryDate(attrs);
+        const expired = expiryDate ? new Date(expiryDate).getTime() <= NOW_MS : false;
+
+        // Treat expired or fully-consumed memberships as inactive so they
+        // are deleted from Klaviyo instead of being re-upserted.
+        if (expired || usage.remaining === 0) {
+            inactiveMembershipIds.push(m.id);
+            continue;
+        }
 
         activeMembershipRecords.push(toRecord({
             id: m.id,
             name: attrs.membership_name,
             start_date: attrs.start_date || attrs.calculated_start_datetime || null,
-            expiry_date: resolveExpiryDate(attrs),
+            expiry_date: expiryDate,
             is_expired: false,
             membership_status: attrs.status,
             type: 'membership',
@@ -1631,10 +1663,12 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
     const activePackageRecords = [];
     const inactivePackageIds = [];
 
-    for (const t of creditTxs) {
+    for (const t of creditTransactions) {
         if (t.relationships?.parent_credit_transaction?.data !== null) continue;
         const attrs = t.attributes;
-        const isActive = !attrs.is_expired;
+        const expiry = attrs.expiration_datetime ?? null;
+        const expiredByDate = expiry ? new Date(expiry).getTime() <= NOW_MS : false;
+        const isActive = !attrs.is_expired && !expiredByDate;
 
         const remaining = attrs.remaining_credits_cache ?? 0;
         if (!isActive || remaining === 0) {
@@ -1688,13 +1722,6 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
             );
         }
     }
-
-    console.log(
-        `[passive-sync] user=${user_id} action=${data.action} ` +
-        `upsert=${recordsToUpsert.length} delete=${idsToDelete.length} ` +
-        `(memberships: ${activeMembershipRecords.length}+${inactiveMembershipIds.length}, ` +
-        `packages: ${activePackageRecords.length}+${inactivePackageIds.length})`
-    );
 }
 
 
