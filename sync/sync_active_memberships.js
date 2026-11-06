@@ -2,173 +2,306 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 
-// 导入你的 Klaviyo SDK 实例（按实际路径调整）
-// import { klaviyoApi } from '../utils/klaviyo.js';
-
+// ================= Configuration =================
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
+const BASE_URL = process.env.MT_API_ENDPOINT?.replace(/\/+$/, '');
+const API_TOKEN = process.env.MT_ADMIN_TOKEN;
+const MT_HEADERS = {
+    Authorization: `Bearer ${API_TOKEN}`,
+    Accept: 'application/vnd.api+json',
+};
+
 const CSV_FILE = path.join(__dirname, 'report-membership-details.csv');
 const MAP_FILE = path.join(__dirname, 'customer_map.json');
+const READY_FILE = path.join(__dirname, 'ready_records.json');
+const FAILED_FILE = path.join(__dirname, 'failed_records.json');
 
-// ================= 配置区域 =================
-const BASE_URL = process.env.MARIANA_TEK_BASE_URL || 'https://your-domain.marianatek.com/api';
-const API_TOKEN = process.env.MARIANA_TEK_TOKEN || 'YOUR_MARIANA_TEK_API_TOKEN';
-// ============================================
+const PAGE_SIZE = 200;           // MT API per_page hard limit
+const PAGE_THROTTLE_MS = 200;
+const COMMITMENT_INTERVALS = new Set(['DY', 'WK', 'MO', 'YR']);
+const SESSION_NAME_RE = /(\d+)\s*(?:Session?|Class(?:es)?)/i;
+const NOW_MS = Date.now();       // Fixed "now" for consistency within a single run
 
-// 1. CSV 解析函数
+// ================= MT API helpers =================
+async function mtFetch(queryPath) {
+    const url = `${BASE_URL}${queryPath}`;
+    const res = await fetch(url, { headers: MT_HEADERS });
+    if (!res.ok) {
+        const detail = await res.text().catch(() => '(no response body)');
+        throw new Error(`MT API [${res.status}] ${queryPath}: ${detail}`);
+    }
+    return res.json();
+}
+
+async function* paginateAll(baseQuery) {
+    let page = 1;
+    let totalPages = 1;
+    do {
+        const sep = baseQuery.includes('?') ? '&' : '?';
+        const json = await mtFetch(`${baseQuery}${sep}page=${page}`);
+        totalPages = json.meta?.pagination?.pages ?? totalPages;
+        for (const item of json.data || []) yield item;
+        page++;
+        if (page <= totalPages) await new Promise((r) => setTimeout(r, PAGE_THROTTLE_MS));
+    } while (page <= totalPages);
+}
+
+// ================= CSV → email map =================
 function parseCsvLine(line) {
     const values = [];
     let current = '';
     let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        if (char === '"') {
-            inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
-            values.push(current.trim().replace(/^"|"$/g, ''));
-            current = '';
-        } else {
-            current += char;
-        }
+    for (const char of line) {
+        if (char === '"') inQuotes = !inQuotes;
+        else if (char === ',' && !inQuotes) { values.push(current.trim().replace(/^"|"$/g, '')); current = ''; }
+        else current += char;
     }
     values.push(current.trim().replace(/^"|"$/g, ''));
     return values;
 }
 
-// 2. 加载或生成 Customer 映射字典
 async function loadOrGenerateCustomerMap() {
     if (fs.existsSync(MAP_FILE)) {
-        console.log(`[准备工作] 从现有本地文件加载: ${MAP_FILE}`);
+        console.log(`[init] Loading existing cache: ${MAP_FILE}`);
         return JSON.parse(fs.readFileSync(MAP_FILE, 'utf-8'));
     }
 
-    console.log(`[准备工作] 正在从 CSV 生成映射字典: ${CSV_FILE}`);
-    const fileStream = fs.createReadStream(CSV_FILE, { encoding: 'utf-8' });
-    const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
-
+    console.log(`[init] Generating map from CSV: ${CSV_FILE}`);
+    const rl = readline.createInterface({ input: fs.createReadStream(CSV_FILE, { encoding: 'utf-8' }), crlfDelay: Infinity });
     const map = {};
-    let idIndex = -1;
-    let emailIndex = -1;
-    let isFirstLine = true;
+    let idIdx = -1, emailIdx = -1;
 
     for await (const line of rl) {
         if (!line.trim()) continue;
-        const columns = parseCsvLine(line);
-
-        if (isFirstLine) {
-            idIndex = columns.indexOf('Customer ID');
-            emailIndex = columns.indexOf('Customer Email');
-            isFirstLine = false;
+        const cols = parseCsvLine(line);
+        if (idIdx === -1) {
+            idIdx = cols.indexOf('Customer ID');
+            emailIdx = cols.indexOf('Customer Email');
             continue;
         }
-
-        const customerId = columns[idIndex]?.trim();
-        const email = columns[emailIndex]?.trim().toLowerCase();
-        if (customerId && email && email.includes('@')) {
-            map[customerId] = email;
-        }
+        const id = cols[idIdx]?.trim();
+        const email = cols[emailIdx]?.trim().toLowerCase();
+        if (id && email?.includes('@')) map[id] = email;
     }
 
     fs.writeFileSync(MAP_FILE, JSON.stringify(map, null, 2), 'utf-8');
-    console.log(`[准备工作] 映射已缓存至 ${MAP_FILE}，共 ${Object.keys(map).length} 个用户`);
+    console.log(`[init] Map cached to ${MAP_FILE} with ${Object.keys(map).length} users`);
     return map;
 }
 
-// 3. 分页拉取 active membership 并通过字典匹配
+// ================= Date & usage helpers =================
+function safeDate(str) {
+    if (!str) return null;
+    const d = new Date(typeof str === 'string' ? str.replace(' ', 'T') : str);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function computeCommitmentExpiry(attrs) {
+    const { commitment_length: length, payment_interval: interval, start_date: start } = attrs;
+    if (!(length > 0) || !COMMITMENT_INTERVALS.has(interval)) return null;
+    const date = safeDate(start);
+    if (!date) return null;
+
+    if (interval === 'DY' || interval === 'WK') {
+        const days = length * (interval === 'WK' ? 7 : 1);
+        date.setUTCDate(date.getUTCDate() + days);
+    } else {
+        const originalDay = date.getUTCDate();
+        const months = length * (interval === 'YR' ? 12 : 1);
+        date.setUTCDate(1);
+        date.setUTCMonth(date.getUTCMonth() + months);
+        const lastDay = new Date(date.getTime());
+        lastDay.setUTCMonth(lastDay.getUTCMonth() + 1, 0);
+        date.setUTCDate(Math.min(originalDay, lastDay.getUTCDate()));
+    }
+    return date.toISOString().replace(/\.000Z$/, 'Z');
+}
+
+function computeSessionUsage(attrs, tx) {
+    const used = tx.usage_count ?? 0;
+    const remainingRaw = tx.remaining_usage_count;
+    let total;
+    if (remainingRaw != null) total = used + remainingRaw;
+    else if (attrs.usage_interval_limit != null) total = attrs.usage_interval_limit;
+    else {
+        const m = (attrs.membership_name || '').match(SESSION_NAME_RE);
+        total = m ? parseInt(m[1], 10) : 31;
+    }
+    return {
+        total,
+        remaining: Math.max(0, total - used),
+        pct: total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0,
+    };
+}
+
+// Compute expiry_date: prefer commitment end (if still in future);
+// fall back to the current cycle end returned by MT.
+function resolveExpiryDate(attrs) {
+    const computed = computeCommitmentExpiry(attrs);
+    if (computed && new Date(computed).getTime() > NOW_MS) return computed;
+    return attrs.next_charge_date
+        ?? attrs.payment_interval_end_date
+        ?? null;
+}
+
+// ================= credit_transactions prefetch =================
+// A membership may span many transactions; keep timestamps of positive (purchase) rows only.
+async function fetchUserPackagePurchaseDates(userId) {
+    if (!userId) return [];
+    const dates = [];
+    for await (const item of paginateAll(`/credit_transactions?user=${userId}&page_size=100`)) {
+        const a = item.attributes;
+        const isParent = item.relationships?.parent_credit_transaction?.data === null;
+        const isPurchase = a.origination_type === 'purchase';
+        if ((a.transaction_amount ?? 0) > 0 && isParent && isPurchase) dates.push(a.transaction_datetime);
+    }
+    return dates;
+}
+
+function hasPurchaseInCycle(purchaseDates, cycleStart, cycleEnd) {
+    if (!cycleStart) return false;
+    const start = cycleStart.getTime();
+    const end = cycleEnd ? cycleEnd.getTime() : Infinity;
+    return purchaseDates.some((dt) => {
+        const t = safeDate(dt)?.getTime();
+        return t != null && t >= start && t <= end;
+    });
+}
+
+// ================= Main pipeline =================
 async function fetchAndSyncActiveMemberships() {
     const customerMap = await loadOrGenerateCustomerMap();
 
-    let nextUrl = `${BASE_URL}/membership_instances?page_size=200&status=active`;
-    let pageCount = 1;
-    let totalFetched = 0;
-    let totalMatched = 0;
-    let totalUnmatched = 0;
+    // Stage 1: fetch all active memberships with include on every page
+    // (data + included in a single shot per page)
+    console.log('\n🚀 Stage 1/4: Fetch all active membership_instances');
+    const memberships = [];
+    const includedTxById = new Map();
+    const listBase = `/membership_instances?page_size=${PAGE_SIZE}&status=active&include=current_membership_transaction`;
 
-    console.log('\n🚀 开始拉取 Mariana Tek 活跃会员数据...');
-
-    while (nextUrl) {
-        console.log(`\n--- [Page ${pageCount}] 请求中: ${nextUrl} ---`);
-
-        const res = await fetch(nextUrl, {
-            headers: {
-                'Authorization': `Bearer ${API_TOKEN}`,
-                'Accept': 'application/vnd.api+json',
-            },
-        });
-
-        if (!res.ok) {
-            const errorText = await res.text();
-            throw new Error(`Mariana Tek API 报错 [${res.status}]: ${errorText}`);
+    let page = 1;
+    let totalPages = 1;
+    do {
+        const url = `${listBase}&page=${page}`;
+        process.stdout.write(`  [Stage 1] Page ${page}${page === 1 ? '' : `/${totalPages}`} → ${url} ... `);
+        const t0 = Date.now();
+        const json = await mtFetch(url);
+        // totalPages = json.meta?.pagination?.pages ?? totalPages;
+        totalPages = 1;
+        const count = json.data?.length ?? 0;
+        const includedCount = (json.included || []).filter((i) => i.type === 'membership_transactions').length;
+        process.stdout.write(`OK (${count} memberships + ${includedCount} included_tx, ${Date.now() - t0}ms)\n`);
+        for (const m of json.data || []) memberships.push(m);
+        for (const inc of json.included || []) {
+            if (inc.type === 'membership_transactions') includedTxById.set(inc.id, inc.attributes);
         }
+        if (page < totalPages) await new Promise((r) => setTimeout(r, PAGE_THROTTLE_MS));
+        page++;
+    } while (page <= totalPages);
+    console.log(`  ✅ Fetched ${memberships.length} active memberships, ${includedTxById.size} current_transactions`);
 
-        const json = await res.json();
-        const memberships = json.data || [];
-        totalFetched += memberships.length;
+    // Stage 2: collect unique user_ids, prefetch credit_transactions in parallel
+    console.log('\n🚀 Stage 2/4: Prefetch credit_transactions per user');
+    const uniqueUserIds = [...new Set(
+        memberships.map((m) => m.relationships?.user?.data?.id).filter(Boolean),
+    )];
+    console.log(`  ${uniqueUserIds.length} unique user(s) to query`);
 
-        // 匹配字典并格式化为 Custom Object 结构
-        const readyRecords = [];
+    // One request per user, run in parallel; fall back to [] on failure
+    const packageDatesByUser = new Map();
+    let done = 0;
+    const total = uniqueUserIds.length;
+    console.log(`  Launching ${total} parallel credit_transactions requests ...`);
+    const tStage2 = Date.now();
 
-        for (const item of memberships) {
-            const userId = item.relationships?.user?.data?.id;
-            const email = customerMap[userId];
+    const tasks = uniqueUserIds.map(async (uid) => {
+        let dates = [];
+        try {
+            dates = await fetchUserPackagePurchaseDates(uid);
+        } catch (e) {
+            console.warn(`  ⚠️ Credit transactions fetch failed for User ${uid}: ${e.message}`);
+        }
+        packageDatesByUser.set(uid, dates);
+        done++;
+        if (done % 10 === 0 || done === total) {
+            const pct = Math.round((done / total) * 100);
+            console.log(`  [Stage 2] ${done}/${total} (${pct}%) done`);
+        }
+    });
+    await Promise.all(tasks);
+    console.log(`  ✅ All ${total} users done in ${Date.now() - tStage2}ms`);
 
-            if (!email) {
-                totalUnmatched++;
-                // 如果字典中没匹配到，可记录日志排查（可能是近期新注册但未在离线报表中的用户）
-                // console.warn(`未匹配到邮箱: User ID ${userId}, Membership ID ${item.id}`);
-                continue;
-            }
+    // Stage 3: serialize records — no in-loop awaits
+    console.log('\n🚀 Stage 3/4: Serialize + match email + derive fields');
+    const readyRecords = [];
+    const failedRecords = [];
 
-            totalMatched++;
-            readyRecords.push({
-                id: item.id,
-                name: item.attributes.membership_name,
-                start_date: item.attributes.start_date || item.attributes.calculated_start_datetime,
-                expiry_date: item.attributes.next_charge_date || item.attributes.payment_interval_end_date,
-                membership_status: item.attributes.status,
-                type: 'membership',
-                is_expired: false,
-                user_email: email, // 关联 Profile 的唯一标识
+    for (const item of memberships) {
+        const userId = item.relationships?.user?.data?.id;
+        const email = customerMap[userId];
+        const attrs = item.attributes;
+
+        if (!email) {
+            failedRecords.push({
+                reason: 'email_not_matched',
+                user_id: userId,
+                membership_instance_id: item.id,
+                membership_name: attrs.membership_name,
             });
+            continue;
         }
 
-        console.log(`本页抓取: ${memberships.length} 条 | 匹配邮箱成功: ${readyRecords.length} 条`);
+        const txId = item.relationships?.current_membership_transaction?.data?.id;
+        const tx = includedTxById.get(txId) || {};
+        const cycleStartRaw = tx.payment_interval_start_date || attrs.payment_interval_start_date;
+        const cycleEndRaw = tx.payment_interval_end_date || attrs.payment_interval_end_date;
+        const cycleStart = safeDate(cycleStartRaw);
+        const cycleEnd = safeDate(cycleEndRaw);
+        const usage = computeSessionUsage(attrs, tx);
+        const hasPkg = hasPurchaseInCycle(packageDatesByUser.get(userId) || [], cycleStart, cycleEnd);
 
-        // 4. 分批推送到 Klaviyo
-        if (readyRecords.length > 0) {
-            try {
-                // await klaviyoApi.createDataSourceRecords(readyRecords);
-                console.log(`✅ 已就绪/同步 ${readyRecords.length} 条记录至 Klaviyo`);
-            } catch (syncErr) {
-                console.error(`❌ Klaviyo 同步失败:`, syncErr.response?.data || syncErr.message);
-            }
-        }
-
-        // 5. 翻页控制
-        if (json.links?.next) {
-            nextUrl = json.links.next.startsWith('http')
-                ? json.links.next
-                : `${BASE_URL}${json.links.next}`;
-            pageCount++;
-
-            // 接口频控缓冲（200ms）
-            await new Promise((r) => setTimeout(r, 200));
-        } else {
-            nextUrl = null;
-        }
+        readyRecords.push({
+            id: item.id,
+            name: attrs.membership_name,
+            start_date: attrs.start_date || attrs.calculated_start_datetime,
+            expiry_date: resolveExpiryDate(attrs),
+            is_expired: false,
+            membership_status: attrs.status,
+            type: 'membership',
+            current_cycle_end_date: cycleEndRaw || null,
+            session_usage_percentage: usage.pct,
+            session_remaining: usage.remaining,
+            total_sessions_included: usage.total,
+            has_additional_package_purchase: hasPkg
+        });
     }
 
-    console.log('\n================ 处理汇总 ================');
-    console.log(`总翻页数: ${pageCount}`);
-    console.log(`接口返回 Active 总数: ${totalFetched}`);
-    console.log(`成功匹配邮箱总数: ${totalMatched}`);
-    console.log(`未匹配到邮箱总数: ${totalUnmatched}`);
+    // Stage 4: persist to disk + (commented-out) Klaviyo sync
+    console.log('\n🚀 Stage 4/4: Persist ready / failed records');
+    fs.writeFileSync(READY_FILE, JSON.stringify(readyRecords, null, 2), 'utf-8');
+    fs.writeFileSync(FAILED_FILE, JSON.stringify(failedRecords, null, 2), 'utf-8');
+    console.log(`  ✅ ready: ${readyRecords.length} → ${READY_FILE}`);
+    console.log(`  ✅ failed: ${failedRecords.length} → ${FAILED_FILE}`);
+
+    const unmatched = failedRecords.filter((f) => f.reason === 'email_not_matched').length;
+
+    console.log('\n================ Summary ================');
+    console.log(`MT active total       : ${memberships.length}`);
+    console.log(`Matched emails        : ${readyRecords.length}`);
+    console.log(`Unmatched emails      : ${unmatched}`);
+    console.log(`Unique users          : ${uniqueUserIds.length}`);
+    console.log(`Klaviyo ready file    : ${READY_FILE}`);
+    console.log(`Failed records file   : ${FAILED_FILE}`);
     console.log('==========================================');
 }
 
 fetchAndSyncActiveMemberships().catch((err) => {
-    console.error('运行异常:', err);
+    console.error('Unhandled error:', err);
+    process.exitCode = 1;
 });
