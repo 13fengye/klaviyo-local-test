@@ -1208,8 +1208,8 @@ async function getPackageCustomProperties(reservationId, fallbackRemaining) {
 
                 custom_properties = {
                     type: 'package',
-                    package_start_date: startDate ? startDate.toISOString() : null,
-                    package_expiry_date: endDate ? endDate.toISOString() : null,
+                    start_date: startDate ? startDate.toISOString() : null,
+                    expiry_date: endDate ? endDate.toISOString() : null,
                     period_elapsed_percentage: timeElapsedPct,
                     total_sessions_included: totalSessionsIncluded,
                     sessions_remaining: remaining,
