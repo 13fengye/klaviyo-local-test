@@ -71,7 +71,25 @@ export default async (req, res) => {
         /**
          * Create or Update Membership or Package Data Records
          */
-        await createAndUpdateMemberhipOrPackageRecords(data);
+        const { user_id, user_email } = getUserDataFromEvent(data);
+
+        if (!user_id || !user_email) {
+            console.log("Failed to find user id/email => ", data.action);
+        } else {
+            const mtData = await fetchMembershipAndCreditData(user_id);
+
+            try {
+                await createAndUpdateMemberhipOrPackageRecordsLegacy(mtData, user_email);
+            } catch (e) {
+                console.error("Failed to run legacy data source sync", e);
+            }
+
+            try {
+                await createAndUpdateMemberhipOrPackageRecords(mtData, user_email);
+            } catch (e) {
+                console.error("Failed to run membership or package data source sync", e);
+            }
+        }
     }
 
     switch (data.action) {
@@ -1057,6 +1075,99 @@ async function marianaTekFetcher(path) {
 
 }
 
+/**
+ * Extract the MT user id/email from an incoming event.
+ */
+function getUserDataFromEvent(data) {
+    let user_id = "";
+    let user_email = "";
+
+    switch (data.action) {
+        case 'profile.created': {
+            user_id = data.profile.id;
+            user_email = data.profile.email;
+
+            break;
+        }
+        case "reservation.created": {
+            user_id = data.reservation.customer.id;
+            user_email = data.reservation.customer.email;
+
+            break;
+        }
+        case "reservation.checkedin": {
+            user_id = data.reservation.customer.id;
+            user_email = data.reservation.customer.email;
+
+            break;
+        }
+        case "reservation.cancelled": {
+            user_id = data.reservation.customer.id;
+            user_email = data.reservation.customer.email;
+
+            break;
+        }
+        case "reservation.noshowed": {
+            user_id = data.reservation.customer.id;
+            user_email = data.reservation.customer.email;
+
+            break;
+        }
+        case "membership.purchased": {
+            user_id = data.membership.customer.id;
+            user_email = data.membership.customer.email;
+
+            break;
+        }
+        case "membership.deactivated": {
+            user_id = data.membership.customer.id;
+            user_email = data.membership.customer.email;
+
+            break;
+        }
+        case "order.completed": {
+            user_id = data.order.customer.id;
+            user_email = data.order.customer.email;
+
+            break;
+        }
+    }
+
+    return { user_id, user_email };
+}
+
+/**
+ * Fetch membership instances (with current transaction included) and all
+ * credit transactions for a user from MT, in parallel. Shared by both the
+ * legacy and the object_record data source syncs.
+ */
+async function fetchMembershipAndCreditData(user_id) {
+    const fetchAllCreditTransactions = async () => {
+        const rows = [];
+        let page = 1;
+        let totalPages = 1;
+        do {
+            const res = await marianaTekFetcher(
+                `credit_transactions?user=${user_id}&page_size=100&page=${page}`
+            );
+            const data = res?.data || [];
+            rows.push(...data);
+            totalPages = res?.meta?.pagination?.pages || 1;
+            page++;
+        } while (page <= totalPages);
+        return rows;
+    };
+
+    const [allMembershipsResults, creditTransactions] = await Promise.all([
+        marianaTekFetcher(
+            `membership_instances?user=${user_id}&include=current_membership_transaction`
+        ),
+        fetchAllCreditTransactions(),
+    ]);
+
+    return { allMembershipsResults, creditTransactions };
+}
+
 const safeDate = (str) => {
     if (!str) return null;
     const d = new Date(typeof str === 'string' ? str.replace(' ', 'T') : str);
@@ -1416,119 +1527,104 @@ class KlaviyoApi {
 }
 
 /**
+ * Legacy flat-record sync of memberships/packages into the Klaviyo data source.
+ * Preserved from handler_prod.js; reuses the MT data fetched for the sync below.
+ */
+async function createAndUpdateMemberhipOrPackageRecordsLegacy(
+    { allMembershipsResults, creditTransactions },
+    user_email
+) {
+    /**
+     * Parse MT data to generate appropriate object for Klaviyo
+     */
+    const membershipObjects =
+        allMembershipsResults?.data.map(({ id, attributes }) => ({
+            type: "data-source-record",
+            attributes: {
+                record: {
+                    type: "membership",
+                    id: id,
+                    name: attributes.membership_name,
+                    status: attributes.status,
+                    startDate: attributes.start_date
+                        ? new Date(attributes.start_date)
+                        : null,
+                    endDate: attributes.end_date ? new Date(attributes.end_date) : null,
+                    email: user_email,
+                }
+            }
+        })) || [];
+
+    const packageObjects =
+        creditTransactions.map(({ id, attributes }) => ({
+            type: "data-source-record",
+            attributes: {
+                record: {
+                    type: "package",
+                    id: id,
+                    name: attributes.credit_name,
+                    status: attributes.is_expired ? "expired" : "active",
+                    startDate: attributes.transaction_datetime
+                        ? new Date(attributes.transaction_datetime)
+                        : null,
+                    endDate: attributes.expiration_datetime
+                        ? new Date(attributes.expiration_datetime)
+                        : null,
+                    email: user_email,
+                }
+            }
+        })) || [];
+
+    const dataSourceRecords = {
+        data: {
+            type: "data-source-record-bulk-create-job",
+            attributes: {
+                "data-source-records": {
+                    data: [
+                        ...membershipObjects,
+                        ...packageObjects
+                    ]
+                }
+            },
+            relationships: {
+                "data-source": {
+                    data: {
+                        type: "data-source",
+                        id: "01K1G5JPFAVHJ5BP1SWEEE82RH"
+                    }
+                }
+            }
+        }
+    };
+
+    const options = {
+        method: 'POST',
+        headers: {
+            accept: 'application/vnd.api+json',
+            revision: '2026-07-15',
+            'content-type': 'application/vnd.api+json',
+            Authorization: `Klaviyo-API-Key ${process.env["KLAVIYO_PRIVATE_API_KEY"]}`
+        },
+        body: JSON.stringify(dataSourceRecords)
+    };
+
+    const res = await fetch('https://a.klaviyo.com/api/data-source-record-bulk-create-jobs', options);
+
+    const status = res.status;
+
+    if (status !== 204) {
+        console.error("Failed to update data source (legacy)", await res.json());
+    }
+}
+
+/**
  * This is a temporary workaround to create custom objects in Klaviyo. 
  * Once the package in NapkinIO is updated we will not need this anymmore.
  */
-async function createAndUpdateMemberhipOrPackageRecords(data) {
-    let user_id = "";
-    let user_email = "";
-
-    /**
-     * Extract User ID and User Email
-     */
-    switch (data.action) {
-        case 'profile.created': {
-            user_id = data.profile.id;
-            user_email = data.profile.email;
-
-            break;
-        }
-        case "profile.get_user_info": {
-
-            break;
-        }
-        case "profile.subscribe_marketing": {
-
-            break;
-        }
-        case "profile.unsubscribe_marketing": {
-
-            break;
-        }
-        case "reservation.created": {
-            user_id = data.reservation.customer.id;
-            user_email = data.reservation.customer.email;
-
-            break;
-        }
-        case "reservation.checkedin": {
-            user_id = data.reservation.customer.id;
-            user_email = data.reservation.customer.email;
-
-            break;
-        }
-        case "reservation.cancelled": {
-            user_id = data.reservation.customer.id;
-            user_email = data.reservation.customer.email;
-
-            break;
-        }
-        case "reservation.noshowed": {
-            user_id = data.reservation.customer.id;
-            user_email = data.reservation.customer.email;
-
-            break;
-        }
-        case "membership.purchased": {
-            user_id = data.membership.customer.id;
-            user_email = data.membership.customer.email;
-
-            break;
-        }
-        case "membership.deactivated": {
-            user_id = data.membership.customer.id;
-            user_email = data.membership.customer.email;
-
-            break;
-        }
-        case "order.completed": {
-            user_id = data.order.customer.id;
-            user_email = data.order.customer.email;
-
-            break;
-        }
-        case "order.preordered_product": {
-
-            break;
-        }
-        case "order.completed_preorder": {
-
-            break;
-        }
-    }
-
-    if (!user_id || !user_email) {
-        console.log("Failed to find user id/email => ", data.action);
-        return;
-    }
-
-    /**
-     * Fetch membership instances (with current transaction included) and all
-     * credit transactions for this user from MT, in parallel.
-     */
-    const fetchAllCreditTransactions = async () => {
-        const rows = [];
-        let page = 1;
-        let totalPages = 1;
-        do {
-            const res = await marianaTekFetcher(
-                `credit_transactions?user=${user_id}&page_size=100&page=${page}`
-            );
-            const data = res?.data || [];
-            rows.push(...data);
-            totalPages = res?.meta?.pagination?.pages || 1;
-            page++;
-        } while (page <= totalPages);
-        return rows;
-    };
-
-    const [allMembershipsResults, creditTransactions] = await Promise.all([
-        marianaTekFetcher(
-            `membership_instances?user=${user_id}&include=current_membership_transaction`
-        ),
-        fetchAllCreditTransactions(),
-    ]);
-
+async function createAndUpdateMemberhipOrPackageRecords(
+    { allMembershipsResults, creditTransactions },
+    user_email
+) {
     const memberships = allMembershipsResults?.data || [];
     const includedTx = new Map(
         (allMembershipsResults?.included || [])
