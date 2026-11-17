@@ -1535,8 +1535,6 @@ async function createAndUpdateMemberhipOrPackageRecordsLegacy(
     { allMembershipsResults, creditTransactions },
     user_email
 ) {
-    if (!LEGACY_DATA_SOURCE_ID) return;
-    
     const membershipObjects =
         allMembershipsResults?.data.map(({ id, attributes }) => ({
             type: "data-source-record",
@@ -1625,8 +1623,6 @@ async function createAndUpdateMemberhipOrPackageRecords(
     { allMembershipsResults, creditTransactions },
     user_email
 ) {
-    if (!DATA_SOURCE_ID) return;
-
     const memberships = allMembershipsResults?.data || [];
     const includedTx = new Map(
         (allMembershipsResults?.included || [])
