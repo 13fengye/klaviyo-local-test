@@ -1354,6 +1354,7 @@ function formatKlaviyoProfile(rawProfile) {
 
 const BASE_URL = "https://a.klaviyo.com/api";
 const REVISION = "2026-07-15";
+const LEGACY_DATA_SOURCE_ID = process.env["KLAVIYO_LEGACY_DATA_SOURCE_ID"];
 const DATA_SOURCE_ID = process.env["KLAVIYO_DATA_SOURCE_ID"];
 const OBJECT_TYPE_ID = process.env["KLAVIYO_OBJECT_TYPE_ID"];
 
@@ -1575,45 +1576,45 @@ async function createAndUpdateMemberhipOrPackageRecordsLegacy(
             }
         })) || [];
 
-    const dataSourceRecords = {
-        data: {
-            type: "data-source-record-bulk-create-job",
-            attributes: {
-                "data-source-records": {
-                    data: [
-                        ...membershipObjects,
-                        ...packageObjects
-                    ]
-                }
-            },
-            relationships: {
-                "data-source": {
-                    data: {
-                        type: "data-source",
-                        id: "01K1G5JPFAVHJ5BP1SWEEE82RH"
+    const recordsToUpsert = [...membershipObjects, ...packageObjects]
+    if (recordsToUpsert.length > 0) {
+        const dataSourceRecords = {
+            data: {
+                type: "data-source-record-bulk-create-job",
+                attributes: {
+                    "data-source-records": {
+                        data: recordsToUpsert
+                    }
+                },
+                relationships: {
+                    "data-source": {
+                        data: {
+                            type: "data-source",
+                            id: LEGACY_DATA_SOURCE_ID
+                        }
                     }
                 }
             }
+        };
+
+        const options = {
+            method: 'POST',
+            headers: {
+                accept: 'application/vnd.api+json',
+                revision: '2026-07-15',
+                'content-type': 'application/vnd.api+json',
+                Authorization: `Klaviyo-API-Key ${process.env["KLAVIYO_PRIVATE_API_KEY"]}`
+            },
+            body: JSON.stringify(dataSourceRecords)
+        };
+
+        const res = await fetch('https://a.klaviyo.com/api/data-source-record-bulk-create-jobs', options);
+
+        const status = res.status;
+
+        if (status !== 204) {
+            console.error("Failed to update data source (legacy)", await res.json());
         }
-    };
-
-    const options = {
-        method: 'POST',
-        headers: {
-            accept: 'application/vnd.api+json',
-            revision: '2026-07-15',
-            'content-type': 'application/vnd.api+json',
-            Authorization: `Klaviyo-API-Key ${process.env["KLAVIYO_PRIVATE_API_KEY"]}`
-        },
-        body: JSON.stringify(dataSourceRecords)
-    };
-
-    const res = await fetch('https://a.klaviyo.com/api/data-source-record-bulk-create-jobs', options);
-
-    const status = res.status;
-
-    if (status !== 204) {
-        console.error("Failed to update data source (legacy)", await res.json());
     }
 }
 
