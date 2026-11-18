@@ -1737,6 +1737,10 @@ async function createAndUpdateMemberhipOrPackageRecords(
             continue;
         }
 
+        const commitmentLength = attrs.commitment_length ?? 0;
+        const renewalCount = attrs.renewal_count ?? 0;
+        const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
+
         activeMembershipRecords.push(toRecord({
             id: m.id,
             name: attrs.membership_name,
@@ -1750,6 +1754,7 @@ async function createAndUpdateMemberhipOrPackageRecords(
             session_remaining: usage.remaining,
             total_sessions_included: usage.total,
             has_additional_package_purchase: hasPkg,
+            is_rolling_contract: isRollingContract,
         }, user_email));
     }
 
@@ -1787,6 +1792,7 @@ async function createAndUpdateMemberhipOrPackageRecords(
             session_remaining: remaining,
             total_sessions_included: total,
             has_additional_package_purchase: false,
+            is_rolling_contract: false,
         }, user_email));
     }
 
