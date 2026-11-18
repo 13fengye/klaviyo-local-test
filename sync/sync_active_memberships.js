@@ -348,6 +348,10 @@ async function fetchAndSyncActiveMemberships() {
             continue;
         }
 
+        const commitmentLength = attrs.commitment_length ?? 0;
+        const renewalCount = attrs.renewal_count ?? 0;
+        const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
+
         readyRecords.push({
             id: item.id,
             name: attrs.membership_name,
@@ -360,7 +364,8 @@ async function fetchAndSyncActiveMemberships() {
             session_usage_percentage: usage.pct,
             session_remaining: usage.remaining,
             total_sessions_included: usage.total,
-            has_additional_package_purchase: hasPkg
+            has_additional_package_purchase: hasPkg,
+            is_rolling_contract: isRollingContract,
         });
     }
 

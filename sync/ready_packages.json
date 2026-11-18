@@ -12,7 +12,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "lumei@aragoncs.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43511",
@@ -27,22 +27,67 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "mei+1@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
-    "id": "43801",
-    "name": "1 Session",
-    "start_date": "2026-11-06T06:23:31.408892Z",
-    "expiry_date": "2026-11-09T06:23:31.408892Z",
+    "id": "43802",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-10T02:38:55.388321Z",
+    "expiry_date": "2027-01-10T02:38:55.388321Z",
     "is_expired": false,
     "membership_status": "active",
     "type": "package",
-    "current_cycle_end_date": "2026-11-09T06:23:31.408892Z",
+    "current_cycle_end_date": "2027-01-10T02:38:55.388321Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43803",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-10T08:31:36.834904Z",
+    "expiry_date": "2027-05-10T08:31:36.834904Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-10T08:31:36.834904Z",
     "session_usage_percentage": 0,
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong+3@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43805",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-10T08:53:48.935804Z",
+    "expiry_date": "2027-01-10T08:53:48.935804Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-10T08:53:48.935804Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43806",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-10T09:11:23.486363Z",
+    "expiry_date": "2027-05-10T09:11:23.486363Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-10T09:11:23.486363Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43517",
@@ -57,22 +102,22 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "mei@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
-    "id": "43480",
-    "name": "Liverpool Triple",
-    "start_date": "2026-05-15T08:30:31.510675Z",
-    "expiry_date": "2026-11-15T08:30:31.510675Z",
+    "id": "43807",
+    "name": "Test after AU separation",
+    "start_date": "2026-11-10T09:28:29.184279Z",
+    "expiry_date": "2027-11-10T09:28:29.184279Z",
     "is_expired": false,
     "membership_status": "active",
     "type": "package",
-    "current_cycle_end_date": "2026-11-15T08:30:31.510675Z",
+    "current_cycle_end_date": "2027-11-10T09:28:29.184279Z",
     "session_usage_percentage": 0,
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "junhui@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43518",
@@ -87,22 +132,262 @@
     "session_remaining": 196,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "mei@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
-    "id": "43481",
+    "id": "43808",
     "name": "Liverpool Triple",
-    "start_date": "2026-05-15T09:04:26.378329Z",
-    "expiry_date": "2026-11-15T09:04:26.378329Z",
+    "start_date": "2026-11-10T09:38:08.042030Z",
+    "expiry_date": "2027-05-10T09:38:08.042030Z",
     "is_expired": false,
     "membership_status": "active",
     "type": "package",
-    "current_cycle_end_date": "2026-11-15T09:04:26.378329Z",
+    "current_cycle_end_date": "2027-05-10T09:38:08.042030Z",
     "session_usage_percentage": 0,
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "junhui@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43811",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-10T10:27:33.883269Z",
+    "expiry_date": "2027-05-10T10:27:33.883269Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-10T10:27:33.883269Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43812",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-10T14:51:00.231421Z",
+    "expiry_date": "2027-05-10T14:51:00.231421Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-10T14:51:00.231421Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43817",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-11T02:40:28.471361Z",
+    "expiry_date": "2027-01-11T02:40:28.471361Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-11T02:40:28.471361Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43818",
+    "name": "Test after AU separation",
+    "start_date": "2026-11-11T02:58:51.426372Z",
+    "expiry_date": "2027-11-11T02:58:51.426372Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-11-11T02:58:51.426372Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43820",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-11T03:10:19.581934Z",
+    "expiry_date": "2027-05-11T03:10:19.581934Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-11T03:10:19.581934Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43821",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-11T03:57:51.783625Z",
+    "expiry_date": "2027-05-11T03:57:51.783625Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-11T03:57:51.783625Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43822",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:18:16.455654Z",
+    "expiry_date": "2027-05-12T02:18:16.455654Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:18:16.455654Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43823",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:24:03.618984Z",
+    "expiry_date": "2027-05-12T02:24:03.618984Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:24:03.618984Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43824",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:29:41.453278Z",
+    "expiry_date": "2027-05-12T02:29:41.453278Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:29:41.453278Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43825",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:30:38.727462Z",
+    "expiry_date": "2027-05-12T02:30:38.727462Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:30:38.727462Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43826",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:30:45.441375Z",
+    "expiry_date": "2027-05-12T02:30:45.441375Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:30:45.441375Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43827",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:33:28.791744Z",
+    "expiry_date": "2027-05-12T02:33:28.791744Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:33:28.791744Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43828",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:33:51.146391Z",
+    "expiry_date": "2027-05-12T02:33:51.146391Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:33:51.146391Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43829",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:39:55.589077Z",
+    "expiry_date": "2027-05-12T02:39:55.589077Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:39:55.589077Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43831",
+    "name": "Test after AU separation",
+    "start_date": "2026-11-12T02:44:24.530375Z",
+    "expiry_date": "2027-11-12T02:44:24.530375Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-11-12T02:44:24.530375Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43832",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-12T02:54:24.574810Z",
+    "expiry_date": "2027-05-12T02:54:24.574810Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-12T02:54:24.574810Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43570",
@@ -117,7 +402,22 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43833",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-12T02:55:09.777763Z",
+    "expiry_date": "2027-01-12T02:55:09.777763Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-12T02:55:09.777763Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "42018",
@@ -132,7 +432,22 @@
     "session_remaining": 199,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "fernando.gelin@xplortechnologies.com"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43836",
+    "name": "Test after AU separation",
+    "start_date": "2026-11-12T10:34:29.795079Z",
+    "expiry_date": "2027-11-12T10:34:29.795079Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-11-12T10:34:29.795079Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43574",
@@ -147,7 +462,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43575",
@@ -162,7 +477,22 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43837",
+    "name": "2 sessions for test",
+    "start_date": "2026-11-12T10:39:21.989288Z",
+    "expiry_date": "2026-11-19T10:39:21.989288Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2026-11-19T10:39:21.989288Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 2,
+    "total_sessions_included": 2,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43577",
@@ -177,7 +507,22 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43839",
+    "name": "Test after AU separation",
+    "start_date": "2026-11-12T10:43:43.259434Z",
+    "expiry_date": "2027-11-12T10:43:43.259434Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-11-12T10:43:43.259434Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43578",
@@ -192,7 +537,97 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43840",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-12T10:44:01.541926Z",
+    "expiry_date": "2027-01-12T10:44:01.541926Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-12T10:44:01.541926Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43841",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-13T06:50:42.082783Z",
+    "expiry_date": "2027-01-13T06:50:42.082783Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-13T06:50:42.082783Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43842",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-13T11:49:03.950383Z",
+    "expiry_date": "2027-01-13T11:49:03.950383Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-13T11:49:03.950383Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43843",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-16T06:29:07.746730Z",
+    "expiry_date": "2027-05-16T06:29:07.746730Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-16T06:29:07.746730Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43844",
+    "name": "2 sessions for test",
+    "start_date": "2026-11-16T06:33:02.221620Z",
+    "expiry_date": "2026-11-23T06:33:02.221620Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2026-11-23T06:33:02.221620Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 2,
+    "total_sessions_included": 2,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43847",
+    "name": "1 Session",
+    "start_date": "2026-11-17T04:57:09.152387Z",
+    "expiry_date": "2026-11-20T04:57:09.152387Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2026-11-20T04:57:09.152387Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43587",
@@ -207,7 +642,22 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43852",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-17T05:22:43.134130Z",
+    "expiry_date": "2027-01-17T05:22:43.134130Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-17T05:22:43.134130Z",
+    "session_usage_percentage": 20,
+    "session_remaining": 4,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43594",
@@ -222,7 +672,7 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43595",
@@ -237,7 +687,37 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43856",
+    "name": "1 Session",
+    "start_date": "2026-11-17T08:39:12.761890Z",
+    "expiry_date": "2026-11-20T08:39:12.761890Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2026-11-20T08:39:12.761890Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43857",
+    "name": "2 sessions for test",
+    "start_date": "2026-11-17T08:41:25.201397Z",
+    "expiry_date": "2026-11-24T08:41:25.201397Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2026-11-24T08:41:25.201397Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 2,
+    "total_sessions_included": 2,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43598",
@@ -252,7 +732,97 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43858",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-17T08:44:11.561292Z",
+    "expiry_date": "2027-05-17T08:44:11.561292Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-17T08:44:11.561292Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43859",
+    "name": "1 Session",
+    "start_date": "2026-11-17T08:49:55.297186Z",
+    "expiry_date": "2026-11-20T08:49:55.297186Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2026-11-20T08:49:55.297186Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43860",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-17T08:54:27.865209Z",
+    "expiry_date": "2027-01-17T08:54:27.865209Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-17T08:54:27.865209Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43861",
+    "name": "Test Credit Package - 5",
+    "start_date": "2026-11-17T08:57:54.564011Z",
+    "expiry_date": "2027-01-17T08:57:54.564011Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-01-17T08:57:54.564011Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 5,
+    "total_sessions_included": 5,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43862",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-18T03:20:58.794005Z",
+    "expiry_date": "2027-05-18T03:20:58.794005Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-18T03:20:58.794005Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
+  },
+  {
+    "id": "43863",
+    "name": "Liverpool Triple",
+    "start_date": "2026-11-18T03:21:07.631834Z",
+    "expiry_date": "2027-05-18T03:21:07.631834Z",
+    "is_expired": false,
+    "membership_status": "active",
+    "type": "package",
+    "current_cycle_end_date": "2027-05-18T03:21:07.631834Z",
+    "session_usage_percentage": 0,
+    "session_remaining": 1,
+    "total_sessions_included": 1,
+    "has_additional_package_purchase": false,
+    "is_rolling_contract": false
   },
   {
     "id": "43613",
@@ -267,7 +837,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43626",
@@ -282,52 +852,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "mei@leisurelabs.co.uk"
-  },
-  {
-    "id": "43628",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-09T06:09:13.692538Z",
-    "expiry_date": "2026-11-09T06:09:13.692538Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-09T06:09:13.692538Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "mei@leisurelabs.co.uk"
-  },
-  {
-    "id": "43629",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-09T06:27:43.040743Z",
-    "expiry_date": "2026-11-09T06:27:43.040743Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-09T06:27:43.040743Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "mei+14@leisurelabs.co.uk"
-  },
-  {
-    "id": "43630",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-09T06:51:08.501912Z",
-    "expiry_date": "2026-11-09T06:51:08.501912Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-09T06:51:08.501912Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "mei@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43632",
@@ -342,7 +867,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "mei+14@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43633",
@@ -357,7 +882,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43636",
@@ -372,7 +897,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43398",
@@ -387,22 +912,7 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "tasnim@gmail.com"
-  },
-  {
-    "id": "43644",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-10T06:23:33.080608Z",
-    "expiry_date": "2026-11-10T06:23:33.080608Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-10T06:23:33.080608Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43399",
@@ -417,7 +927,7 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "tasnim@gmail.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43645",
@@ -432,7 +942,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43400",
@@ -447,7 +957,7 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "tasnim@gmail.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43647",
@@ -462,7 +972,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43402",
@@ -477,7 +987,7 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "tasnimfarah665@gmail.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43652",
@@ -492,7 +1002,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43653",
@@ -507,7 +1017,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43408",
@@ -522,7 +1032,7 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "tasnim@gmail.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43656",
@@ -537,37 +1047,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
-  },
-  {
-    "id": "43658",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-10T08:18:36.037463Z",
-    "expiry_date": "2026-11-10T08:18:36.037463Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-10T08:18:36.037463Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "wenwen+10@leisurelabs.co.uk"
-  },
-  {
-    "id": "43662",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-10T08:36:32.014529Z",
-    "expiry_date": "2026-11-10T08:36:32.014529Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-10T08:36:32.014529Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "wenwen+11@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43664",
@@ -582,7 +1062,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43665",
@@ -597,7 +1077,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "mei+1@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43422",
@@ -612,7 +1092,7 @@
     "session_remaining": 200,
     "total_sessions_included": 200,
     "has_additional_package_purchase": false,
-    "user_email": "tasnim@gmail.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43668",
@@ -627,22 +1107,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
-  },
-  {
-    "id": "43672",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-14T07:28:40.401482Z",
-    "expiry_date": "2026-11-14T07:28:40.401482Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-14T07:28:40.401482Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43674",
@@ -657,7 +1122,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43676",
@@ -672,7 +1137,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43677",
@@ -687,52 +1152,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen@leisurelabs.co.uk"
-  },
-  {
-    "id": "43679",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-15T08:56:19.329370Z",
-    "expiry_date": "2026-11-15T08:56:19.329370Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-15T08:56:19.329370Z",
-    "session_usage_percentage": 20,
-    "session_remaining": 4,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43689",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-16T09:11:47.340961Z",
-    "expiry_date": "2026-11-16T09:11:47.340961Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-16T09:11:47.340961Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43695",
-    "name": "Test Credit Package - 5",
-    "start_date": "2026-09-16T10:16:54.117591Z",
-    "expiry_date": "2026-11-16T10:16:54.117591Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-16T10:16:54.117591Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 5,
-    "total_sessions_included": 5,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43696",
@@ -747,7 +1167,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "mei+11@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43709",
@@ -762,7 +1182,7 @@
     "session_remaining": 4,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "xiaona+2@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43728",
@@ -777,7 +1197,7 @@
     "session_remaining": 150,
     "total_sessions_included": 150,
     "has_additional_package_purchase": false,
-    "user_email": "mei@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43730",
@@ -792,7 +1212,7 @@
     "session_remaining": 150,
     "total_sessions_included": 150,
     "has_additional_package_purchase": false,
-    "user_email": "mei+19@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43731",
@@ -807,7 +1227,7 @@
     "session_remaining": 150,
     "total_sessions_included": 150,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43732",
@@ -822,7 +1242,7 @@
     "session_remaining": 150,
     "total_sessions_included": 150,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong+33@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43733",
@@ -837,7 +1257,7 @@
     "session_remaining": 150,
     "total_sessions_included": 150,
     "has_additional_package_purchase": false,
-    "user_email": "mei+20@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43734",
@@ -852,97 +1272,7 @@
     "session_remaining": 150,
     "total_sessions_included": 150,
     "has_additional_package_purchase": false,
-    "user_email": "mei+17@leisurelabs.co.uk"
-  },
-  {
-    "id": "43738",
-    "name": "1 Session",
-    "start_date": "2026-10-12T01:50:03.602900Z",
-    "expiry_date": "2026-11-12T01:50:03.602900Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-12T01:50:03.602900Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 1,
-    "total_sessions_included": 1,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43739",
-    "name": "1 Session",
-    "start_date": "2026-10-12T02:29:42.589328Z",
-    "expiry_date": "2026-11-12T02:29:42.589328Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-12T02:29:42.589328Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 1,
-    "total_sessions_included": 1,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43740",
-    "name": "1 Session",
-    "start_date": "2026-10-12T02:31:52.548796Z",
-    "expiry_date": "2026-11-12T02:31:52.548796Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-12T02:31:52.548796Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 1,
-    "total_sessions_included": 1,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43741",
-    "name": "1 Session",
-    "start_date": "2026-10-12T02:38:48.419512Z",
-    "expiry_date": "2026-11-12T02:38:48.419512Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-12T02:38:48.419512Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 1,
-    "total_sessions_included": 1,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43742",
-    "name": "1 Session",
-    "start_date": "2026-10-12T03:21:26.692979Z",
-    "expiry_date": "2026-11-12T03:21:26.692979Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-12T03:21:26.692979Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 1,
-    "total_sessions_included": 1,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43743",
-    "name": "1 Session",
-    "start_date": "2026-10-12T03:37:11.498892Z",
-    "expiry_date": "2026-11-12T03:37:11.498892Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-12T03:37:11.498892Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 1,
-    "total_sessions_included": 1,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43744",
@@ -957,37 +1287,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43745",
-    "name": "1 Session",
-    "start_date": "2026-10-12T06:26:16.312733Z",
-    "expiry_date": "2026-11-12T06:26:16.312733Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-12T06:26:16.312733Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 1,
-    "total_sessions_included": 1,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43746",
-    "name": "Test after AU separation",
-    "start_date": "2026-10-12T06:39:57.373795Z",
-    "expiry_date": "2026-11-12T06:39:57.373795Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-12T06:39:57.373795Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 1,
-    "total_sessions_included": 1,
-    "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43749",
@@ -1002,7 +1302,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "mei+25@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43750",
@@ -1017,7 +1317,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "mei+25@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43751",
@@ -1032,7 +1332,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "xiaona+3@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43752",
@@ -1047,7 +1347,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43753",
@@ -1062,7 +1362,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43758",
@@ -1077,22 +1377,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
-  },
-  {
-    "id": "43759",
-    "name": "NEW TO 1REBEL TRIPLE",
-    "start_date": "2026-10-19T06:34:11.010900Z",
-    "expiry_date": "2026-11-18T06:34:11.010900Z",
-    "is_expired": false,
-    "membership_status": "active",
-    "type": "package",
-    "current_cycle_end_date": "2026-11-18T06:34:11.010900Z",
-    "session_usage_percentage": 0,
-    "session_remaining": 20,
-    "total_sessions_included": 20,
-    "has_additional_package_purchase": false,
-    "user_email": "zhouyuan@aragoncs.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43760",
@@ -1107,7 +1392,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43762",
@@ -1122,7 +1407,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "zhouyuan@aragoncs.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43763",
@@ -1137,7 +1422,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "mei+1@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43764",
@@ -1152,7 +1437,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen+26@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43767",
@@ -1167,7 +1452,7 @@
     "session_remaining": 1,
     "total_sessions_included": 1,
     "has_additional_package_purchase": false,
-    "user_email": "wenwen+3@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43768",
@@ -1182,7 +1467,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43770",
@@ -1197,7 +1482,7 @@
     "session_remaining": 4,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "xiaona+1@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43772",
@@ -1212,7 +1497,7 @@
     "session_remaining": 4,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "liangxioana+1@gmail.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43781",
@@ -1227,7 +1512,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43784",
@@ -1242,7 +1527,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "zhouyuan.aragoncs+re104re105@aragoncs.com"
+    "is_rolling_contract": false
   },
   {
     "id": "43786",
@@ -1257,7 +1542,7 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "mei+40@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43787",
@@ -1272,7 +1557,7 @@
     "session_remaining": 20,
     "total_sessions_included": 20,
     "has_additional_package_purchase": false,
-    "user_email": "mei+39@leisurelabs.co.uk"
+    "is_rolling_contract": false
   },
   {
     "id": "43791",
@@ -1287,6 +1572,6 @@
     "session_remaining": 5,
     "total_sessions_included": 5,
     "has_additional_package_purchase": false,
-    "user_email": "zhentong@leisurelabs.co.uk"
+    "is_rolling_contract": false
   }
 ]

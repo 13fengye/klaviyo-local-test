@@ -343,7 +343,7 @@ async function fetchAndSyncActivePackages() {
             session_remaining: usage.remaining,
             total_sessions_included: usage.total,
             has_additional_package_purchase: false,
-            user_email: email,
+            is_rolling_contract: false,
         });
     }
 
