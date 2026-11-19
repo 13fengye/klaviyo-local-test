@@ -331,6 +331,7 @@ async function fetchAndSyncActivePackages() {
         }
 
         readyRecords.push({
+            user_email: email,
             id: item.id,
             name: attrs.credit_name,
             start_date: attrs.transaction_datetime ?? null,

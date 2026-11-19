@@ -1,0 +1,53 @@
+{
+  "data": {
+    "type": "data-source-record-bulk-create-job",
+    "attributes": {
+      "data-source-records": {
+        "data": [
+          {
+            "type": "data-source-record",
+            "attributes": {
+              "record": {
+                "object_record": {
+                  "id": "example-unique-id-12345",
+                  "name": "example-name",
+                  "start_date": "2024-01-15T10:30:00Z",
+                  "expiry_date": "2024-01-15T10:30:00Z",
+                  "is_expired": true,
+                  "membership_status": "example-membership_status",
+                  "type": "example-type",
+                  "current_cycle_end_date": "2024-01-15T10:30:00Z",
+                  "session_usage_percentage": 99.99,
+                  "session_remaining": 12345,
+                  "has_additional_package_purchase": true,
+                  "total_sessions_included": 12345,
+                  "is_rolling_contract": true
+                },
+                "relationships": {
+                  "Email": [
+                    {
+                      "id": "example-unique-id-12345",
+                      "email": "example1@example.com"
+                    },
+                    {
+                      "id": "example-unique-id-12345",
+                      "email": "example2@example.com"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "relationships": {
+      "data-source": {
+        "data": {
+          "type": "data-source",
+          "id": "01M6JTHAV704SHC0B9Y6FVKY6S"
+        }
+      }
+    }
+  }
+}

@@ -353,6 +353,7 @@ async function fetchAndSyncActiveMemberships() {
         const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
 
         readyRecords.push({
+            user_email: email,
             id: item.id,
             name: attrs.membership_name,
             start_date: attrs.start_date || attrs.calculated_start_datetime,
