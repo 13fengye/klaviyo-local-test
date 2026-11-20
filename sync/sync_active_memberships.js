@@ -335,15 +335,15 @@ async function fetchAndSyncActiveMemberships() {
         const hasPkg = hasPurchaseInCycle(packageDatesByUser.get(userId) || [], cycleStart, cycleEnd);
         const expiryDate = resolveExpiryDate(attrs);
 
-        // Skip records that are already expired or fully consumed — these
-        // should be removed from Klaviyo rather than re-upserted.
+        // Skip records that are already expired — these should be removed
+        // from Klaviyo rather than re-upserted. remaining===0 memberships
+        // are still kept (user may still have access).
         const expired = expiryDate ? new Date(expiryDate).getTime() <= NOW_MS : false;
-        if (expired || usage.remaining === 0) {
+        if (expired) {
             skipped.push({
                 id: item.id,
-                reason: expired ? 'expired' : 'no_sessions_remaining',
+                reason: 'expired',
                 expiry_date: expiryDate,
-                session_remaining: usage.remaining,
             });
             continue;
         }

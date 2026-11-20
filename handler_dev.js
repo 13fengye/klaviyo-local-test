@@ -1730,9 +1730,10 @@ async function createAndUpdateMemberhipOrPackageRecords(
         const expiryDate = resolveExpiryDate(attrs);
         const expired = expiryDate ? new Date(expiryDate).getTime() <= NOW_MS : false;
 
-        // Treat expired or fully-consumed memberships as inactive so they
-        // are deleted from Klaviyo instead of being re-upserted.
-        if (expired || usage.remaining === 0) {
+        // Treat expired memberships as inactive so they are deleted from
+        // Klaviyo instead of being re-upserted. remaining===0 memberships
+        // are still kept (user may still have access).
+        if (expired) {
             inactiveMembershipIds.push(m.id);
             continue;
         }
@@ -1770,7 +1771,9 @@ async function createAndUpdateMemberhipOrPackageRecords(
         const isActive = !attrs.is_expired && !expiredByDate;
 
         const remaining = attrs.remaining_credits_cache ?? 0;
-        if (!isActive || remaining === 0) {
+        // Only delete from Klaviyo if the package is truly expired (date past
+        // or MT flagged). remaining===0 with a future expiry is still kept.
+        if (!isActive) {
             inactivePackageIds.push(t.id);
             continue;
         }

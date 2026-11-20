@@ -318,15 +318,15 @@ async function fetchAndSyncActivePackages() {
         const usage = computePackageUsage(attrs);
         const expiry = attrs.expiration_datetime ?? null;
 
-        // Skip records that are already expired or fully consumed — these
-        // should be removed from Klaviyo rather than re-upserted.
+        // Skip records that are already expired — these should be removed
+        // from Klaviyo rather than re-upserted. remaining===0 with a future
+        // expiry is still kept.
         const expired = expiry ? new Date(expiry).getTime() <= NOW_MS : false;
-        if (expired || usage.remaining === 0) {
+        if (expired) {
             skipped.push({
                 id: item.id,
-                reason: expired ? 'expired' : 'no_sessions_remaining',
+                reason: 'expired',
                 expiry_date: expiry,
-                session_remaining: usage.remaining,
             });
         }
 
