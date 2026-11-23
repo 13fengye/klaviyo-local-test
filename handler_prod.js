@@ -31,8 +31,8 @@ export default async (req, res) => {
         }
 
         // Send to BetterStack 
-        const ingestingHost = "s1289345.eu-nbg-2.betterstackdata.com";
-        const sourceToken = "xxxxxxxxxx";
+        const ingestingHost = process.env["BETTERSTACK_HOST"];
+        const sourceToken = process.env["BETTERSTACK_TOKEN"];
 
         const url = `https://${ingestingHost}`;
 
@@ -60,6 +60,8 @@ export default async (req, res) => {
      * Create or Update Membership or Package Data Records
      */
     await createAndUpdateMemberhipOrPackageRecords(data);
+
+    const klaviyoApi = new KlaviyoApi();
 
     switch (data.action) {
         case 'profile.created': {
@@ -132,7 +134,7 @@ export default async (req, res) => {
 
             const subscriptions = {};
 
-            if (is_opted_in_to_marketing == true) {
+            if (is_opted_in_to_marketing) {
                 subscriptions.email = {
                     marketing: {
                         consent: 'SUBSCRIBED',
@@ -140,48 +142,50 @@ export default async (req, res) => {
                 };
             }
 
-            if (is_opted_in_to_sms == true) {
-                subscriptions.sms = {
-                    marketing: {
-                        consent: 'SUBSCRIBED',
+            // Considering that WhatsApp does not have field hosting, we will use SMS fields instead,
+            // which means that SMS services will not be enabled in the future. 
+            if (is_opted_in_to_sms) {
+                subscriptions.whatsapp = {
+                    marketing: { 
+                        consent: 'SUBSCRIBED', 
                     },
                 };
             }
 
-
-
-            try {
-                await Profiles.bulkSubscribeProfiles({
-                    data: {
-                        type: 'profile-subscription-bulk-create-job',
-                        attributes: {
-                            profiles: {
-                                data: [
-                                    {
-                                        type: 'profile',
-                                        attributes: {
-                                            email: email,
-                                            phoneNumber: subscriptions.sms ? phone_number : null,
-                                            subscriptions,
-                                            
+            if (subscriptions && Object.keys(subscriptions).length > 0) {
+                try {
+                    await klaviyoApi.subscribeProfiles({
+                        data: {
+                            type: 'profile-subscription-bulk-create-job',
+                            attributes: {
+                                profiles: {
+                                    data: [
+                                        {
+                                            type: 'profile',
+                                            attributes: {
+                                                email: email,
+                                                phone_number: subscriptions.whatsapp ? phone_number : null,
+                                                subscriptions,
+                                                
+                                            },
                                         },
-                                    },
-                                ],
+                                    ],
+                                },
                             },
                         },
-                    },
-                });
-            } catch (e) {
-                const errorObject = {
-                    event_name: 'profile.created',
-                    message: e.message,
-                    errors: e.response?.data.errors,
-                };
+                    });
+                } catch (e) {
+                    const errorObject = {
+                        event_name: 'profile.created',
+                        message: e.message,
+                        errors: e.response?.data.errors,
+                    };
 
-                console.error(JSON.stringify(errorObject, null, 2));
+                    console.error(JSON.stringify(errorObject, null, 2));
 
-                // @ts-expect-error - This is a valid response
-                return res.json(errorObject).status(200);
+                    // @ts-expect-error - This is a valid response
+                    return res.json(errorObject).status(200);
+                }
             }
 
             break;
@@ -793,6 +797,64 @@ async function marianaTekFetcher(path) {
 
 }
 
+const BASE_URL = "https://a.klaviyo.com/api";
+const REVISION = "2026-07-15";
+
+/**
+ * Generic Klaviyo API helper using native `fetch`.
+ *
+ * Centralizes the common headers (auth, revision, content-type) and exposes
+ * methods for endpoints where the SDK's older version fails to serialize
+ * payloads correctly (e.g. `subscriptions.whatsapp`).
+ *
+ * The API key is read from `process.env.KLAVIYO_PRIVATE_API_KEY` internally,
+ * so callers don't need to pass it.
+ */
+class KlaviyoApi {
+    constructor(apiKey = process.env["KLAVIYO_PRIVATE_API_KEY"]) {
+        this.apiKey = apiKey;
+    }
+
+    /** Common request headers shared by every Klaviyo endpoint. */
+    get headers() {
+        return {
+            accept: 'application/vnd.api+json',
+            revision: REVISION,
+            'content-type': 'application/vnd.api+json',
+            Authorization: `Klaviyo-API-Key ${this.apiKey}`
+        };
+    }
+
+    /**
+     * Internal POST helper. Throws an error (with `response.data` / `body`
+     * attached) when the response is not OK, so existing try/catch blocks that
+     * read `e.response?.data.errors` keep working.
+     */
+    async post(path, payload) {
+        const res = await fetch(`${BASE_URL}${path}`, {
+            method: 'POST',
+            headers: this.headers,
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            const err = new Error(`Klaviyo ${path} failed: ${res.status}`);
+            err.response = { data: body };
+            err.body = body;
+            throw err;
+        }
+
+        return res;
+    }
+
+    /** POST a profile-subscription bulk-create job. */
+    async subscribeProfiles(payload) {
+        return this.post('/profile-subscription-bulk-create-jobs', payload);
+    }
+}
+
+
 /**
  * This is a temporary workaround to create custom objects in Klaviyo. 
  * Once the package in NapkinIO is updated we will not need this anymmore.
@@ -960,9 +1022,6 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
     if (status !== 204) {
         console.error("Failed to update data source", await res.json())
     }
-
-
-
 }
 
 
