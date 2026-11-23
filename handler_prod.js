@@ -982,45 +982,45 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
             }
         })) || [];
 
-    const dataSourceRecords = {
-        data: {
-            type: "data-source-record-bulk-create-job",
-            attributes: {
-                "data-source-records": {
-                    data: [
-                        ...membershipObjects,
-                        ...packageObjects
-                    ]
-                }
-            },
-            relationships: {
-                "data-source": {
-                    data: {
-                        type: "data-source",
-                        id: "01K1G5JPFAVHJ5BP1SWEEE82RH"
+    const recordsToUpsert = [...membershipObjects, ...packageObjects]
+    if (recordsToUpsert.length > 0) {
+        const dataSourceRecords = {
+            data: {
+                type: "data-source-record-bulk-create-job",
+                attributes: {
+                    "data-source-records": {
+                        data: recordsToUpsert
+                    }
+                },
+                relationships: {
+                    "data-source": {
+                        data: {
+                            type: "data-source",
+                            id: "01K1G5JPFAVHJ5BP1SWEEE82RH"
+                        }
                     }
                 }
             }
+        };
+
+        const options = {
+            method: 'POST',
+            headers: {
+                accept: 'application/vnd.api+json',
+                revision: '2026-07-15',
+                'content-type': 'application/vnd.api+json',
+                Authorization: `Klaviyo-API-Key ${process.env["KLAVIYO_PRIVATE_API_KEY"]}`
+            },
+            body: JSON.stringify(dataSourceRecords)
+        };
+
+        const res = await fetch('https://a.klaviyo.com/api/data-source-record-bulk-create-jobs', options);
+
+        const status = await res.status;
+
+        if (status !== 204) {
+            console.error("Failed to update data source", await res.json())
         }
-    };
-
-    const options = {
-        method: 'POST',
-        headers: {
-            accept: 'application/vnd.api+json',
-            revision: '2026-07-15',
-            'content-type': 'application/vnd.api+json',
-            Authorization: `Klaviyo-API-Key ${process.env["KLAVIYO_PRIVATE_API_KEY"]}`
-        },
-        body: JSON.stringify(dataSourceRecords)
-    };
-
-    const res = await fetch('https://a.klaviyo.com/api/data-source-record-bulk-create-jobs', options);
-
-    const status = await res.status;
-
-    if (status !== 204) {
-        console.error("Failed to update data source", await res.json())
     }
 }
 
