@@ -1375,7 +1375,7 @@ async function createAndUpdateMemberhipOrPackageRecords(
             record: {
                 object_record: objectRecord,
                 relationships: {
-                    Email: [{ id: email, email }]
+                    email: [{ id: email, email }]
                 }
             }
         }
