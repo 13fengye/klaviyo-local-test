@@ -1138,45 +1138,6 @@ class KlaviyoApi {
         return res;
     }
 
-    /**
-     * Internal GET helper. `query` is an object of query-string params; arrays
-     * become repeated keys (`additional-fields[profile]=a&additional-fields[profile]=b`).
-     * Throws the same shaped error as `post()`.
-     */
-    async get(path, query = {}) {
-        const parts = [];
-        for (const [key, value] of Object.entries(query)) {
-            if (value == null) continue;
-            if (Array.isArray(value)) {
-                for (const v of value) {
-                    parts.push(
-                        encodeURIComponent(key) + '=' + encodeURIComponent(String(v))
-                    );
-                }
-            } else {
-                parts.push(
-                    encodeURIComponent(key) + '=' + encodeURIComponent(String(value))
-                );
-            }
-        }
-        const url = `${BASE_URL}${path}${parts.length ? '?' + parts.join('&') : ''}`;
-        
-        const res = await fetch(url, {
-            method: 'GET',
-            headers: this.headers
-        });
-
-        if (!res.ok) {
-            const body = await res.json().catch(() => null);
-            const err = new Error(`Klaviyo ${path} failed: ${res.status}`);
-            err.response = { data: body };
-            err.body = body;
-            throw err;
-        }
-
-        return res.json();
-    }
-
     // ---- Data Source Records ----
 
     buildDataSourceRecordsPayload(records) {
