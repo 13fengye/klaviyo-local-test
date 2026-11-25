@@ -1,4 +1,4 @@
-import { ConfigWrapper, Events, Profiles } from "klaviyo-api";
+import { ConfigWrapper, Events } from "klaviyo-api";
 import { object, string, number, boolean, array, mixed } from 'yup';
 
 
@@ -30,7 +30,7 @@ export default async (req, res) => {
             dt: Math.floor(Date.now() / 1000)
         }
 
-        // Send to BetterStack 
+        // Send to BetterStack
         const ingestingHost = process.env["BETTERSTACK_HOST"];
         const sourceToken = process.env["BETTERSTACK_TOKEN"];
 
@@ -51,15 +51,37 @@ export default async (req, res) => {
         return res.json(errorObject).status(200);
     }
 
-
-
     ConfigWrapper(process.env["KLAVIYO_PRIVATE_API_KEY"]);
 
+    const customActions = [
+        'order.completed_preorder',
+        'order.preordered_product',
+    ];
 
-    /**
-     * Create or Update Membership or Package Data Records
-     */
-    await createAndUpdateMemberhipOrPackageRecords(data);
+    if (data.action && !customActions.includes(data.action)) {
+        /**
+         * Create or Update Membership or Package Data Records
+         */
+        const { user_id, user_email } = getUserDataFromEvent(data);
+
+        if (!user_id || !user_email) {
+            console.log("Failed to find user id/email => ", data.action);
+        } else {
+            const mtData = await fetchMembershipAndCreditData(user_id);
+
+            try {
+                await createAndUpdateMemberhipOrPackageRecordsLegacy(mtData, user_email);
+            } catch (e) {
+                console.error("Failed to run legacy data source sync", e);
+            }
+
+            try {
+                await createAndUpdateMemberhipOrPackageRecords(mtData, user_email);
+            } catch (e) {
+                console.error("Failed to run membership or package data source sync", e);
+            }
+        }
+    }
 
     const klaviyoApi = new KlaviyoApi();
 
@@ -261,6 +283,13 @@ export default async (req, res) => {
             const membership_payment = reservation.membership_payments[0];
             const credit_payment = reservation.credit_payments[0];
 
+            let custom_properties = {};
+            if (membership_payment) {
+                custom_properties = await getMembershipCustomProperties(reservation.id);
+            } else if (credit_payment) {
+                custom_properties = await getPackageCustomProperties(reservation.id);
+            }
+
             try {
                 await Events.createEvent({
                     data: {
@@ -283,7 +312,9 @@ export default async (req, res) => {
                                 reservation_id: reservation.id,
                                 class_session_id: reservation.class_session.id,
                                 package_name: credit_payment ? credit_payment.package_name : undefined,
-                                membership_name: membership_payment ? membership_payment.name : undefined
+                                membership_name: membership_payment ? membership_payment.name : undefined,
+
+                                ...custom_properties
                             },
                             profile: {
                                 data: {
@@ -630,7 +661,6 @@ export default async (req, res) => {
             }
 
             break;
-
         }
 
         case "order.preordered_product": {
@@ -680,8 +710,6 @@ export default async (req, res) => {
             }
 
             break;
-
-
         }
 
         case "order.completed_preorder": {
@@ -750,8 +778,6 @@ export default async (req, res) => {
             }
 
             break;
-
-
         }
 
         default:
@@ -797,75 +823,13 @@ async function marianaTekFetcher(path) {
 
 }
 
-const BASE_URL = "https://a.klaviyo.com/api";
-const REVISION = "2026-07-15";
-
 /**
- * Generic Klaviyo API helper using native `fetch`.
- *
- * Centralizes the common headers (auth, revision, content-type) and exposes
- * methods for endpoints where the SDK's older version fails to serialize
- * payloads correctly (e.g. `subscriptions.whatsapp`).
- *
- * The API key is read from `process.env.KLAVIYO_PRIVATE_API_KEY` internally,
- * so callers don't need to pass it.
+ * Extract the MT user id/email from an incoming event.
  */
-class KlaviyoApi {
-    constructor(apiKey = process.env["KLAVIYO_PRIVATE_API_KEY"]) {
-        this.apiKey = apiKey;
-    }
-
-    /** Common request headers shared by every Klaviyo endpoint. */
-    get headers() {
-        return {
-            accept: 'application/vnd.api+json',
-            revision: REVISION,
-            'content-type': 'application/vnd.api+json',
-            Authorization: `Klaviyo-API-Key ${this.apiKey}`
-        };
-    }
-
-    /**
-     * Internal POST helper. Throws an error (with `response.data` / `body`
-     * attached) when the response is not OK, so existing try/catch blocks that
-     * read `e.response?.data.errors` keep working.
-     */
-    async post(path, payload) {
-        const res = await fetch(`${BASE_URL}${path}`, {
-            method: 'POST',
-            headers: this.headers,
-            body: JSON.stringify(payload)
-        });
-
-        if (!res.ok) {
-            const body = await res.json().catch(() => null);
-            const err = new Error(`Klaviyo ${path} failed: ${res.status}`);
-            err.response = { data: body };
-            err.body = body;
-            throw err;
-        }
-
-        return res;
-    }
-
-    /** POST a profile-subscription bulk-create job. */
-    async subscribeProfiles(payload) {
-        return this.post('/profile-subscription-bulk-create-jobs', payload);
-    }
-}
-
-
-/**
- * This is a temporary workaround to create custom objects in Klaviyo. 
- * Once the package in NapkinIO is updated we will not need this anymmore.
- */
-async function createAndUpdateMemberhipOrPackageRecords(data) {
+function getUserDataFromEvent(data) {
     let user_id = "";
     let user_email = "";
 
-    /**
-     * Extract User ID and User Email
-     */
     switch (data.action) {
         case 'profile.created': {
             user_id = data.profile.id;
@@ -915,34 +879,375 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
 
             break;
         }
-        case "order.preordered_product": {
-
-            break;
-        }
-        case "order.completed_preorder": {
-
-            break;
-        }
     }
 
-    if (!user_id || !user_email) {
-        console.log("Failed to find user id/email => ", data.action);
+    return { user_id, user_email };
+}
+
+/**
+ * Fetch membership instances (with current transaction included) and all
+ * credit transactions for a user from MT, in parallel. Shared by both the
+ * legacy and the object_record data source syncs.
+ */
+async function fetchMembershipAndCreditData(user_id) {
+    const fetchAllCreditTransactions = async () => {
+        const rows = [];
+        let page = 1;
+        let totalPages = 1;
+        do {
+            const res = await marianaTekFetcher(
+                `credit_transactions?user=${user_id}&page_size=100&page=${page}`
+            );
+            const data = res?.data || [];
+            rows.push(...data);
+            totalPages = res?.meta?.pagination?.pages || 1;
+            page++;
+        } while (page <= totalPages);
+        return rows;
+    };
+
+    const [allMembershipsResults, creditTransactions] = await Promise.all([
+        marianaTekFetcher(
+            `membership_instances?user=${user_id}&include=current_membership_transaction`
+        ),
+        fetchAllCreditTransactions(),
+    ]);
+
+    return { allMembershipsResults, creditTransactions };
+}
+
+const safeDate = (str) => {
+    if (!str) return null;
+    const d = new Date(typeof str === 'string' ? str.replace(' ', 'T') : str);
+    return isNaN(d.getTime()) ? null : d;
+};
+
+const toDayMs = (d) => {
+    if (!d) return null;
+    return new Date(d.toISOString().slice(0, 10)).getTime();
+};
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+async function getMembershipCustomProperties(reservationId) {
+    let custom_properties = {};
+
+    try {
+        const reservationData = await marianaTekFetcher(
+            `reservations/${reservationId}?include=membership_transactions.membership_instance.current_membership_transaction`
+        );
+
+        const membershipInstance = reservationData?.included?.find(
+            item => item.type === 'membership_instances'
+        );
+
+        const parentMembershipTransactionId = membershipInstance?.relationships?.current_membership_transaction?.data?.id;
+        if (parentMembershipTransactionId) {
+            const membershipTransaction = reservationData?.included?.find(
+                item => item.type === 'membership_transactions' && parentMembershipTransactionId === item.id
+            );
+            if (membershipTransaction) {
+                const membershipInstanceAttrs = membershipInstance.attributes;
+                const membershipContractId = membershipInstance?.relationships?.membership_product?.data?.id || null;
+                const membershipName = membershipInstanceAttrs.membership_name;
+                const usageIntervalLimit = membershipInstanceAttrs.usage_interval_limit;
+                const commitmentLength = membershipInstanceAttrs.commitment_length ?? 0;
+                const renewalCount = membershipInstanceAttrs.renewal_count ?? 0;
+                const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
+
+                const membershipTransactionAttrs = membershipTransaction.attributes;
+
+                const sessionsUsed = membershipTransactionAttrs.usage_count ?? 0;
+                let totalSessionsIncluded;
+                let remaining = membershipTransactionAttrs.remaining_usage_count;
+                if (remaining !== null) {
+                    totalSessionsIncluded = sessionsUsed + remaining;
+                } else if (usageIntervalLimit !== null) {
+                    totalSessionsIncluded = usageIntervalLimit
+                } else {
+                    const match = membershipName.match(/(\d+)\s*(?:Session?|Class(?:es)?)/i);
+                    totalSessionsIncluded = match ? parseInt(match[1], 10) : 31;
+                }
+                remaining = totalSessionsIncluded - sessionsUsed;
+
+                const isUnlimited = totalSessionsIncluded >= 28;
+                const cycleStartDate = safeDate(membershipTransactionAttrs.payment_interval_start_date);
+                const cycleEndDate = safeDate(membershipTransactionAttrs.payment_interval_end_date);
+                const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date);
+
+                let daysElapsed = 0;
+                let timeElapsedPct = 0;
+
+                if (cycleStartDate && checkInDate) {
+                    const startDayMs = toDayMs(cycleStartDate);
+                    const endDayMs = toDayMs(cycleEndDate);
+                    const checkInDayMs = toDayMs(checkInDate);
+
+                    daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
+
+                    const totalDays = (cycleEndDate && cycleEndDate > cycleStartDate)
+                        ? Math.round((endDayMs - startDayMs) / MS_PER_DAY)
+                        : 31;
+
+                    timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+                }
+
+                const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
+                const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
+
+                custom_properties = {
+                    type: 'membership',
+
+                    membership_contract_id: membershipContractId,
+                    membership_instance_id: membershipInstance.id,
+                    membership_start_date: safeDate(membershipInstanceAttrs.start_date),
+                    membership_instance_name: membershipName,
+                    commitment_length: commitmentLength,
+                    is_rolling_contract: isRollingContract,
+
+                    current_cycle_start_date: cycleStartDate,
+                    current_cycle_end_date: cycleEndDate,
+                    cycle_days_elapsed: daysElapsed,
+                    cycle_elapsed_percentage: timeElapsedPct,
+                    total_sessions_included: totalSessionsIncluded,
+                    sessions_remaining: remaining,
+                    session_count: sessionsUsed,
+                    session_usage_percentage: sessionUsedPct,
+                    is_unlimited: isUnlimited
+                };
+            }
+        }
+        
+    } catch (e) {
+        console.error("Failed to get membership custom properties => ", e);
+    }
+
+    return custom_properties;
+}
+
+async function getPackageCustomProperties(reservationId, fallbackRemaining) {
+    let custom_properties = {};
+
+    try {
+        const reservationData = await marianaTekFetcher(
+            `reservations/${reservationId}?include=credit_transactions`
+        );
+
+        const creditTransaction = reservationData?.included?.find(item => item.type === 'credit_transactions');
+        const parentCreditTransactionId = creditTransaction?.relationships?.parent_credit_transaction?.data?.id;
+        if (parentCreditTransactionId) {
+            const parentCreditTransaction = await marianaTekFetcher(`credit_transactions/${parentCreditTransactionId}`);
+            const attrs = parentCreditTransaction?.data?.attributes || parentCreditTransaction?.attributes;
+            if (attrs) {
+                const totalSessionsIncluded = attrs.transaction_amount ?? 0;
+                const remaining = fallbackRemaining ?? attrs.remaining_credits_cache ?? 0;
+                const sessionsUsed = Math.max(0, totalSessionsIncluded - remaining);
+
+                const startDate = safeDate(attrs.transaction_datetime);
+                const endDate = safeDate(attrs.expiration_datetime);
+                const checkInDate = safeDate(reservationData?.data?.attributes?.check_in_date);
+
+                let daysElapsed = 0;
+                let timeElapsedPct = 0;
+
+                if (startDate && checkInDate) {
+                    const startDayMs = toDayMs(startDate);
+                    const endDayMs = toDayMs(endDate);
+                    const checkInDayMs = toDayMs(checkInDate);
+
+                    daysElapsed = Math.max(0, Math.round((checkInDayMs - startDayMs) / MS_PER_DAY));
+
+                    const totalDays = Math.round((endDayMs - startDayMs) / MS_PER_DAY)
+
+                    timeElapsedPct = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+                }
+
+                const usagePct = totalSessionsIncluded > 0 ? (sessionsUsed / totalSessionsIncluded) : 0;
+                const sessionUsedPct = Math.min(100, Math.round(usagePct * 100));
+
+                custom_properties = {
+                    type: 'package',
+                    start_date: startDate ? startDate.toISOString() : null,
+                    expiry_date: endDate ? endDate.toISOString() : null,
+                    period_elapsed_percentage: timeElapsedPct,
+                    total_sessions_included: totalSessionsIncluded,
+                    sessions_remaining: remaining,
+                    session_count: sessionsUsed,
+                    session_usage_percentage: sessionUsedPct,
+                };
+            }
+        }
+    } catch (e) {
+        console.error("Failed to get package custom properties => ", e.message || e);
+    }
+
+    return custom_properties;
+}
+
+const BASE_URL = "https://a.klaviyo.com/api";
+const REVISION = "2026-07-15";
+const LEGACY_DATA_SOURCE_ID = process.env["KLAVIYO_LEGACY_DATA_SOURCE_ID"];
+const DATA_SOURCE_ID = process.env["KLAVIYO_DATA_SOURCE_ID"];
+const OBJECT_TYPE_ID = process.env["KLAVIYO_OBJECT_TYPE_ID"];
+
+/**
+ * Generic Klaviyo API helper using native `fetch`.
+ *
+ * Centralizes the common headers (auth, revision, content-type) and exposes
+ * methods for endpoints where the SDK's older version fails to serialize
+ * payloads correctly (e.g. `subscriptions.whatsapp`).
+ *
+ * The API key is read from `process.env.KLAVIYO_PRIVATE_API_KEY` internally,
+ * so callers don't need to pass it.
+ */
+class KlaviyoApi {
+    constructor(apiKey = process.env["KLAVIYO_PRIVATE_API_KEY"]) {
+        this.apiKey = apiKey;
+    }
+
+    /** Common request headers shared by every Klaviyo endpoint. */
+    get headers() {
+        return {
+            accept: 'application/vnd.api+json',
+            revision: REVISION,
+            'content-type': 'application/vnd.api+json',
+            Authorization: `Klaviyo-API-Key ${this.apiKey}`
+        };
     }
 
     /**
-     * Fetch membership instances and credit transactions data from MT
+     * Internal POST helper. Throws an error (with `response.data` / `body`
+     * attached) when the response is not OK, so existing try/catch blocks that
+     * read `e.response?.data.errors` keep working.
      */
-    const allMembershipsResults = await marianaTekFetcher(
-        `membership_instances?user=${user_id}`
-    );
+    async post(path, payload) {
+        const res = await fetch(`${BASE_URL}${path}`, {
+            method: 'POST',
+            headers: this.headers,
+            body: JSON.stringify(payload)
+        });
 
-    const allPackagesResults = await marianaTekFetcher(
-        `credit_transactions?user=${user_id}&page_size=100`
-    );
+        if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            const err = new Error(`Klaviyo ${path} failed: ${res.status}`);
+            err.response = { data: body };
+            err.body = body;
+            throw err;
+        }
+
+        return res;
+    }
 
     /**
-     * Parse MT data to generate appropriate object for Klaviyo
+     * Internal GET helper. `query` is an object of query-string params; arrays
+     * become repeated keys (`additional-fields[profile]=a&additional-fields[profile]=b`).
+     * Throws the same shaped error as `post()`.
      */
+    async get(path, query = {}) {
+        const parts = [];
+        for (const [key, value] of Object.entries(query)) {
+            if (value == null) continue;
+            if (Array.isArray(value)) {
+                for (const v of value) {
+                    parts.push(
+                        encodeURIComponent(key) + '=' + encodeURIComponent(String(v))
+                    );
+                }
+            } else {
+                parts.push(
+                    encodeURIComponent(key) + '=' + encodeURIComponent(String(value))
+                );
+            }
+        }
+        const url = `${BASE_URL}${path}${parts.length ? '?' + parts.join('&') : ''}`;
+        
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: this.headers
+        });
+
+        if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            const err = new Error(`Klaviyo ${path} failed: ${res.status}`);
+            err.response = { data: body };
+            err.body = body;
+            throw err;
+        }
+
+        return res.json();
+    }
+
+    // ---- Data Source Records ----
+
+    buildDataSourceRecordsPayload(records) {
+        return {
+            data: {
+                type: "data-source-record-bulk-create-job",
+                attributes: {
+                    "data-source-records": {
+                        data: records
+                    }
+                },
+                relationships: {
+                    "data-source": {
+                        data: {
+                            type: "data-source",
+                            id: DATA_SOURCE_ID
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    /** POST a data-source-record bulk-create job. */
+    async createDataSourceRecords(records) {
+        return this.post(
+            '/data-source-record-bulk-create-jobs',
+            this.buildDataSourceRecordsPayload(records)
+        );
+    }
+
+    /**
+     * Delete records via the object-records bulk-delete job.
+     * Klaviyo has no data-source-record delete endpoint; deletion must go
+     * through /object-record-bulk-delete-jobs with composite record ids of
+     * the form "{object-type-id}:::{record-id}".
+     */
+    async deleteDataSourceRecords(recordIds) {
+        if (!recordIds || recordIds.length === 0) return null;
+        const compositeIds = recordIds.map((id) => `${OBJECT_TYPE_ID}:::${id}`);
+        const payload = {
+            data: {
+                type: "object-record-bulk-delete-job",
+                attributes: {},
+                relationships: {
+                    "object-records": {
+                        data: compositeIds.map((id) => ({
+                            type: "object-record",
+                            id
+                        }))
+                    }
+                }
+            }
+        };
+        return this.post('/object-record-bulk-delete-jobs', payload);
+    }
+
+    /** POST a profile-subscription bulk-create job. */
+    async subscribeProfiles(payload) {
+        return this.post('/profile-subscription-bulk-create-jobs', payload);
+    }
+}
+
+/**
+ * Legacy flat-record sync of memberships/packages into the Klaviyo data source.
+ * Preserved from handler_prod.js; reuses the MT data fetched for the sync below.
+ */
+async function createAndUpdateMemberhipOrPackageRecordsLegacy(
+    { allMembershipsResults, creditTransactions },
+    user_email
+) {
     const membershipObjects =
         allMembershipsResults?.data.map(({ id, attributes }) => ({
             type: "data-source-record",
@@ -958,12 +1263,11 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
                     endDate: attributes.end_date ? new Date(attributes.end_date) : null,
                     email: user_email,
                 }
-
             }
         })) || [];
 
     const packageObjects =
-        allPackagesResults?.data.map(({ id, attributes }) => ({
+        creditTransactions.map(({ id, attributes }) => ({
             type: "data-source-record",
             attributes: {
                 record: {
@@ -996,7 +1300,7 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
                     "data-source": {
                         data: {
                             type: "data-source",
-                            id: "01K1G5JPFAVHJ5BP1SWEEE82RH"
+                            id: LEGACY_DATA_SOURCE_ID
                         }
                     }
                 }
@@ -1016,10 +1320,222 @@ async function createAndUpdateMemberhipOrPackageRecords(data) {
 
         const res = await fetch('https://a.klaviyo.com/api/data-source-record-bulk-create-jobs', options);
 
-        const status = await res.status;
+        const status = res.status;
 
         if (status !== 204) {
-            console.error("Failed to update data source", await res.json())
+            console.error("Failed to update data source (legacy)", await res.json());
+        }
+    }
+}
+
+/**
+ * This is a temporary workaround to create custom objects in Klaviyo. 
+ * Once the package in NapkinIO is updated we will not need this anymmore.
+ */
+async function createAndUpdateMemberhipOrPackageRecords(
+    { allMembershipsResults, creditTransactions },
+    user_email
+) {
+    const memberships = allMembershipsResults?.data || [];
+    const includedTx = new Map(
+        (allMembershipsResults?.included || [])
+            .filter((i) => i.type === 'membership_transactions')
+            .map((i) => [i.id, i.attributes])
+    );
+
+    // Collect positive (purchase) package dates for has_additional_package_purchase.
+    const packagePurchaseDates = creditTransactions
+        .filter((t) => t.relationships?.parent_credit_transaction?.data === null)
+        .map((t) => t.attributes.transaction_datetime)
+        .filter(Boolean);
+
+    // --- helpers -----------------------------------------------------------
+    const COMMITMENT_INTERVALS = new Set(['DY', 'WK', 'MO', 'YR']);
+    const SESSION_NAME_RE = /(\d+)\s*(?:Session?|Class(?:es)?)/i;
+    const NOW_MS = Date.now();
+
+    const computeCommitmentExpiry = (attrs) => {
+        const { commitment_length: length, payment_interval: interval, start_date: start } = attrs;
+        if (!(length > 0) || !COMMITMENT_INTERVALS.has(interval)) return null;
+        const date = safeDate(start);
+        if (!date) return null;
+        if (interval === 'DY' || interval === 'WK') {
+            date.setUTCDate(date.getUTCDate() + length * (interval === 'WK' ? 7 : 1));
+        } else {
+            const originalDay = date.getUTCDate();
+            const months = length * (interval === 'YR' ? 12 : 1);
+            date.setUTCDate(1);
+            date.setUTCMonth(date.getUTCMonth() + months);
+            const lastDay = new Date(date.getTime());
+            lastDay.setUTCMonth(lastDay.getUTCMonth() + 1, 0);
+            date.setUTCDate(Math.min(originalDay, lastDay.getUTCDate()));
+        }
+        return date.toISOString().replace(/\.000Z$/, 'Z');
+    };
+
+    const resolveExpiryDate = (attrs) => {
+        const computed = computeCommitmentExpiry(attrs);
+        if (computed && new Date(computed).getTime() > NOW_MS) return computed;
+        return attrs.next_charge_date ?? attrs.payment_interval_end_date ?? null;
+    };
+
+    const computeSessionUsage = (attrs, tx) => {
+        const used = tx.usage_count ?? 0;
+        const remainingRaw = tx.remaining_usage_count;
+        let total;
+        if (remainingRaw != null) total = used + remainingRaw;
+        else if (attrs.usage_interval_limit != null) total = attrs.usage_interval_limit;
+        else {
+            const m = (attrs.membership_name || '').match(SESSION_NAME_RE);
+            total = m ? parseInt(m[1], 10) : 31;
+        }
+        return {
+            total,
+            remaining: Math.max(0, total - used),
+            pct: total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0,
+        };
+    };
+
+    const hasPurchaseInCycle = (cycleStart, cycleEnd) => {
+        if (!cycleStart) return false;
+        const start = cycleStart.getTime();
+        const end = cycleEnd ? cycleEnd.getTime() : Infinity;
+        return packagePurchaseDates.some((dt) => {
+            const t = safeDate(dt)?.getTime();
+            return t != null && t >= start && t <= end;
+        });
+    };
+
+    // Wrap an object_record + email relationship into a Klaviyo data-source-record.
+    const toRecord = (objectRecord, email) => ({
+        type: "data-source-record",
+        attributes: {
+            record: {
+                object_record: objectRecord,
+                relationships: {
+                    Email: [{ id: email, email }]
+                }
+            }
+        }
+    });
+
+    // --- build memberships -------------------------------------------------
+    const activeMembershipRecords = [];
+    const inactiveMembershipIds = [];
+
+    for (const m of memberships) {
+        const attrs = m.attributes;
+        const isActive = attrs.status === 'active';
+        const txId = m.relationships?.current_membership_transaction?.data?.id;
+        const tx = (txId && includedTx.get(txId)) || {};
+
+        if (!isActive) {
+            inactiveMembershipIds.push(m.id);
+            continue;
+        }
+
+        const cycleStartRaw = tx.payment_interval_start_date || attrs.payment_interval_start_date;
+        const cycleEndRaw = tx.payment_interval_end_date || attrs.payment_interval_end_date;
+        const cycleStart = safeDate(cycleStartRaw);
+        const cycleEnd = safeDate(cycleEndRaw);
+        const usage = computeSessionUsage(attrs, tx);
+        const hasPkg = hasPurchaseInCycle(cycleStart, cycleEnd);
+        const expiryDate = resolveExpiryDate(attrs);
+        const expired = expiryDate ? new Date(expiryDate).getTime() <= NOW_MS : false;
+
+        // Treat expired memberships as inactive so they are deleted from
+        // Klaviyo instead of being re-upserted. remaining===0 memberships
+        // are still kept (user may still have access).
+        if (expired) {
+            inactiveMembershipIds.push(m.id);
+            continue;
+        }
+
+        const commitmentLength = attrs.commitment_length ?? 0;
+        const renewalCount = attrs.renewal_count ?? 0;
+        const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
+
+        activeMembershipRecords.push(toRecord({
+            id: m.id,
+            name: attrs.membership_name,
+            start_date: attrs.start_date || attrs.calculated_start_datetime || null,
+            expiry_date: expiryDate,
+            is_expired: false,
+            membership_status: attrs.status,
+            type: 'membership',
+            current_cycle_end_date: cycleEndRaw || null,
+            session_usage_percentage: usage.pct,
+            session_remaining: usage.remaining,
+            total_sessions_included: usage.total,
+            has_additional_package_purchase: hasPkg,
+            is_rolling_contract: isRollingContract,
+        }, user_email));
+    }
+
+    // --- build packages (parent credit transactions only) ------------------
+    const activePackageRecords = [];
+    const inactivePackageIds = [];
+
+    for (const t of creditTransactions) {
+        if (t.relationships?.parent_credit_transaction?.data !== null) continue;
+        const attrs = t.attributes;
+        const expiry = attrs.expiration_datetime ?? null;
+        const expiredByDate = expiry ? new Date(expiry).getTime() <= NOW_MS : false;
+        const isActive = !attrs.is_expired && !expiredByDate;
+
+        const remaining = attrs.remaining_credits_cache ?? 0;
+        // Only delete from Klaviyo if the package is truly expired (date past
+        // or MT flagged). remaining===0 with a future expiry is still kept.
+        if (!isActive) {
+            inactivePackageIds.push(t.id);
+            continue;
+        }
+
+        const total = attrs.transaction_amount ?? 0;
+        const used = Math.max(0, total - remaining);
+        const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+
+        activePackageRecords.push(toRecord({
+            id: t.id,
+            name: attrs.credit_name,
+            start_date: attrs.transaction_datetime ?? null,
+            expiry_date: attrs.expiration_datetime ?? null,
+            is_expired: false,
+            membership_status: 'active',
+            type: 'package',
+            current_cycle_end_date: attrs.expiration_datetime ?? null,
+            session_usage_percentage: pct,
+            session_remaining: remaining,
+            total_sessions_included: total,
+            has_additional_package_purchase: false,
+            is_rolling_contract: false,
+        }, user_email));
+    }
+
+    // --- push to Klaviyo: upsert active, delete inactive -------------------
+    const klaviyoApi = new KlaviyoApi();
+    const recordsToUpsert = [...activeMembershipRecords, ...activePackageRecords];
+    const idsToDelete = [...inactiveMembershipIds, ...inactivePackageIds];
+
+    if (recordsToUpsert.length > 0) {
+        try {
+            await klaviyoApi.createDataSourceRecords(recordsToUpsert);
+        } catch (e) {
+            console.error(
+                "Failed to upsert data source records",
+                e.response?.data || e.body || e.message
+            );
+        }
+    }
+
+    if (idsToDelete.length > 0) {
+        try {
+            await klaviyoApi.deleteDataSourceRecords(idsToDelete);
+        } catch (e) {
+            console.error(
+                "Failed to delete data source records",
+                e.response?.data || e.body || e.message
+            );
         }
     }
 }
