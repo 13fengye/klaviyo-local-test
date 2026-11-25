@@ -24,6 +24,10 @@ const FAILED_FILE = path.join(__dirname, 'failed_records.json');
 
 const PAGE_SIZE = 200;           // MT API per_page hard limit
 const PAGE_THROTTLE_MS = 200;
+const PAGES_PER_COOLDOWN = 5;    // pause every N pages to stay under rate limits
+const COOLDOWN_MS = 1000;        // cooldown length after N pages
+const MAX_FETCH_RETRIES = 4;     // network / 5xx retries with backoff
+const USER_CONCURRENCY = 10;     // Stage 2: how many users to fetch in parallel
 const COMMITMENT_INTERVALS = new Set(['DY', 'WK', 'MO', 'YR']);
 const SESSION_NAME_RE = /(\d+)\s*(?:Session?|Class(?:es)?)/i;
 const NOW_MS = Date.now();       // Fixed "now" for consistency within a single run
@@ -51,11 +55,41 @@ function buildKlaviyoRecords(readyRecords) {
             record: {
                 object_record,
                 relationships: {
-                    Email: [{ id: user_email, email: user_email }],
+                    email: [{ id: user_email, email: user_email }],
                 },
             },
         },
     }));
+}
+
+// POST to Klaviyo with 429 backoff. On 429 it reads "Expected available in
+// N seconds" (or Retry-After header) and waits that long + buffer before
+// retrying. Other errors are thrown immediately.
+async function klaviyoPost(url, payload) {
+    const max429Retries = 10;
+    let attempt = 0;
+    while (true) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: KLAVIYO_HEADERS,
+            body: JSON.stringify(payload),
+        });
+        if (res.ok) return res;
+        const body = await res.text().catch(() => '');
+        if (res.status === 429 && attempt < max429Retries) {
+            const retryAfter = res.headers.get('retry-after');
+            const match = body.match(/Expected available in (\d+) seconds/i);
+            const waitSec = retryAfter
+                ? parseInt(retryAfter, 10)
+                : (match ? parseInt(match[1], 10) : 10);
+            const waitMs = (waitSec + 2) * 1000;  // +2s buffer
+            attempt++;
+            console.warn(`  ⏳ Klaviyo 429 throttled, waiting ${waitSec + 2}s before retry (attempt ${attempt}/${max429Retries})`);
+            await new Promise((r) => setTimeout(r, waitMs));
+            continue;
+        }
+        throw new Error(`Klaviyo bulk-create [${res.status}]: ${body.slice(0, 400)}`);
+    }
 }
 
 async function syncToKlaviyo(readyRecords) {
@@ -78,33 +112,76 @@ async function syncToKlaviyo(readyRecords) {
                 },
             },
         };
-        const res = await fetch(`${KLAVIYO_BASE_URL}/data-source-record-bulk-create-jobs`, {
-            method: 'POST',
-            headers: KLAVIYO_HEADERS,
-            body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-            const body = await res.text().catch(() => '');
-            throw new Error(`Klaviyo bulk-create [${res.status}]: ${body.slice(0, 400)}`);
-        }
+        const res = await klaviyoPost(`${KLAVIYO_BASE_URL}/data-source-record-bulk-create-jobs`, payload);
+        // klaviyoPost throws on non-429 errors; reaching here means success.
         synced += batch.length;
         console.log(`  ✅ Klaviyo upserted ${synced}/${records.length}`);
         if (i + KLAVIYO_BATCH_SIZE < records.length) {
-            await new Promise((r) => setTimeout(r, 200));
+            await new Promise((r) => setTimeout(r, 500));
         }
     }
     return synced;
 }
 
 // ================= MT API helpers =================
-async function mtFetch(queryPath) {
-    const url = `${BASE_URL}${queryPath}`;
-    const res = await fetch(url, { headers: MT_HEADERS });
-    if (!res.ok) {
-        const detail = await res.text().catch(() => '(no response body)');
-        throw new Error(`MT API [${res.status}] ${queryPath}: ${detail}`);
+// Strip trailing slashes from the path segment: production MT treats
+// /resource/ and /resource as different routes (404), sandbox is lenient.
+function canonicalizeQuery(queryPath) {
+    const [pathPart, rest = ''] = queryPath.split('?');
+    const normalizedPath = pathPart.replace(/\/+$/, '');
+    return rest ? `${normalizedPath}?${rest}` : normalizedPath;
+}
+
+// Global throttle: when ANY worker gets a 429, all MT fetches pause until
+// this timestamp. Prevents an avalanche of parallel retries from keeping
+// the rate-limit window permanently open (which makes MT's penalty grow
+// exponentially: 2s → 8s → 16s → 32s → ...).
+let mtThrottleUntil = 0;
+async function waitForMtThrottle() {
+    const now = Date.now();
+    if (now < mtThrottleUntil) {
+        await new Promise((r) => setTimeout(r, mtThrottleUntil - now));
     }
-    return res.json();
+}
+
+async function mtFetch(queryPath) {
+    const url = `${BASE_URL}${canonicalizeQuery(queryPath)}`;
+    let attempt = 0;
+    while (true) {
+        // Respect any active global throttle before sending
+        await waitForMtThrottle();
+        try {
+            const res = await fetch(url, { headers: MT_HEADERS });
+            if (res.ok) return res.json();
+            const detail = await res.text().catch(() => '(no response body)');
+
+            // 429 throttled — wait the hinted duration and retry.
+            // Does NOT consume MAX_FETCH_RETRIES budget. Sets the global
+            // throttle so all concurrent workers pause together.
+            if (res.status === 429) {
+                const retryAfter = res.headers.get('retry-after');
+                const match = detail.match(/Expected available in (\d+) seconds/i);
+                const waitSec = retryAfter
+                    ? parseInt(retryAfter, 10)
+                    : (match ? parseInt(match[1], 10) : 60);
+                const waitMs = (waitSec + 5) * 1000;  // +5s buffer
+                mtThrottleUntil = Date.now() + waitMs;
+                console.warn(`  ⏳ 429 throttled, ALL workers pausing ${waitSec + 5}s (until ${new Date(mtThrottleUntil).toLocaleTimeString()}) — ${url}`);
+                await waitForMtThrottle();
+                continue;
+            }
+
+            // 5xx are transient → retry; other 4xx are client errors → fail fast
+            if (res.status >= 500 && attempt < MAX_FETCH_RETRIES) throw new Error(`HTTP ${res.status}`);
+            throw new Error(`MT API [${res.status}] ${url}: ${detail.slice(0, 300)}`);
+        } catch (e) {
+            attempt++;
+            if (attempt > MAX_FETCH_RETRIES) throw e;
+            const wait = 2 ** attempt * 500;
+            console.warn(`  ⚠️ fetch failed (${e.message}), retrying in ${wait}ms (attempt ${attempt}/${MAX_FETCH_RETRIES})`);
+            await new Promise((r) => setTimeout(r, wait));
+        }
+    }
 }
 
 async function* paginateAll(baseQuery) {
@@ -116,7 +193,13 @@ async function* paginateAll(baseQuery) {
         totalPages = json.meta?.pagination?.pages ?? totalPages;
         for (const item of json.data || []) yield item;
         page++;
-        if (page <= totalPages) await new Promise((r) => setTimeout(r, PAGE_THROTTLE_MS));
+        if (page <= totalPages) {
+            await new Promise((r) => setTimeout(r, PAGE_THROTTLE_MS));
+            if (page % PAGES_PER_COOLDOWN === 0) {
+                console.log(`  [paginate] Cooling down ${COOLDOWN_MS}ms after page ${page - 1}/${totalPages}`);
+                await new Promise((r) => setTimeout(r, COOLDOWN_MS));
+            }
+        }
     } while (page <= totalPages);
 }
 
@@ -243,159 +326,169 @@ function hasPurchaseInCycle(purchaseDates, cycleStart, cycleEnd) {
 }
 
 // ================= Main pipeline =================
+// Two-phase design:
+//   Phase 1: fetch ALL memberships from MT (in 5-page batches to stay under
+//            rate limits), prefetch credit_transactions, serialize, and write
+//            the full result to ready_records.json / failed_records.json.
+//   Phase 2: read ready_records.json back and sync to Klaviyo in batches of
+//            KLAVIYO_BATCH_SIZE, with 429 backoff.
+// Decoupling the two means MT throttling and Klaviyo throttling don't
+// interfere, and a sync failure leaves the data safely on disk.
+// Pass --sync-only to skip Phase 1 and re-sync from the existing file.
 async function fetchAndSyncActiveMemberships() {
-    const customerMap = await loadOrGenerateCustomerMap();
-
-    // Stage 1: fetch all active memberships with include on every page
-    // (data + included in a single shot per page)
-    console.log('\n🚀 Stage 1/4: Fetch all active membership_instances');
-    const memberships = [];
-    const includedTxById = new Map();
+    const syncOnly = process.argv.includes('--sync-only');
+    const customerMap = syncOnly ? {} : await loadOrGenerateCustomerMap();
     const listBase = `/membership_instances?page_size=${PAGE_SIZE}&status=active&include=current_membership_transaction`;
 
-    let page = 1;
+    // Accumulators across all batches (Phase 1)
+    const allReadyRecords = [];
+    const allFailedRecords = [];
+    const allSkipped = [];
+    let totalMemberships = 0;
     let totalPages = 1;
-    do {
-        const url = `${listBase}&page=${page}`;
-        process.stdout.write(`  [Stage 1] Page ${page}${page === 1 ? '' : `/${totalPages}`} → ${url} ... `);
-        const t0 = Date.now();
-        const json = await mtFetch(url);
-        totalPages = json.meta?.pagination?.pages ?? totalPages;
-        const count = json.data?.length ?? 0;
-        const includedCount = (json.included || []).filter((i) => i.type === 'membership_transactions').length;
-        process.stdout.write(`OK (${count} memberships + ${includedCount} included_tx, ${Date.now() - t0}ms)\n`);
-        for (const m of json.data || []) memberships.push(m);
-        for (const inc of json.included || []) {
-            if (inc.type === 'membership_transactions') includedTxById.set(inc.id, inc.attributes);
+    let batchIndex = 0;
+
+    let page = 1;
+
+    // ===== Phase 1: fetch + process ALL data, then write to disk =====
+    if (!syncOnly) {
+        console.log('\n🚀 Phase 1: Fetch all memberships + serialize → ready_records.json');
+        while (page <= totalPages) {
+            batchIndex++;
+            // First page of the batch is fetched before we know totalPages, so
+            // clamp the batch end after the first page responds.
+            let batchEndPage = Math.min(page + PAGES_PER_COOLDOWN - 1, totalPages);
+
+            console.log(`\n🚀 Batch ${batchIndex}: pages ${page}-${batchEndPage}${totalPages > 1 ? ` of ${totalPages}` : ''}`);
+
+            // --- 1. Fetch this batch's membership pages ---
+            const batchMemberships = [];
+            const includedTxById = new Map();
+            for (let p = page; p <= batchEndPage; p++) {
+                const url = `${listBase}&page=${p}`;
+                process.stdout.write(`  [fetch] Page ${p}/${totalPages} → ... `);
+                const t0 = Date.now();
+                const json = await mtFetch(url);
+                // totalPages is only known after the first response
+                if (p === page) {
+                    totalPages = json.meta?.pagination?.pages ?? totalPages;
+                    batchEndPage = Math.min(page + PAGES_PER_COOLDOWN - 1, totalPages);
+                }
+                const count = json.data?.length ?? 0;
+                const includedCount = (json.included || []).filter((i) => i.type === 'membership_transactions').length;
+                process.stdout.write(`OK (${count} memberships + ${includedCount} tx, ${Date.now() - t0}ms)\n`);
+                for (const m of json.data || []) batchMemberships.push(m);
+                for (const inc of json.included || []) {
+                    if (inc.type === 'membership_transactions') includedTxById.set(inc.id, inc.attributes);
+                }
+                if (p < batchEndPage) await new Promise((r) => setTimeout(r, PAGE_THROTTLE_MS));
+            }
+            totalMemberships += batchMemberships.length;
+
+            // --- 3. Serialize this batch ---
+            // NOTE: has_additional_package_purchase is temporarily hardcoded to
+            // false. Computing it requires a credit_transactions fetch per user
+            // (the slowest, most 429-prone step). Re-enable step 2 below later.
+            const batchReady = [];
+            for (const item of batchMemberships) {
+                const userId = item.relationships?.user?.data?.id;
+                const email = customerMap[userId];
+                const attrs = item.attributes;
+
+                if (!email) {
+                    allFailedRecords.push({
+                        reason: 'email_not_matched',
+                        user_id: userId,
+                        membership_instance_id: item.id,
+                        membership_name: attrs.membership_name,
+                    });
+                    continue;
+                }
+
+                const txId = item.relationships?.current_membership_transaction?.data?.id;
+                const tx = includedTxById.get(txId) || {};
+                const cycleStartRaw = tx.payment_interval_start_date || attrs.payment_interval_start_date;
+                const cycleEndRaw = tx.payment_interval_end_date || attrs.payment_interval_end_date;
+                const cycleStart = safeDate(cycleStartRaw);
+                const cycleEnd = safeDate(cycleEndRaw);
+                const usage = computeSessionUsage(attrs, tx);
+                const hasPkg = false; // TODO: hasPurchaseInCycle(packageDatesByUser.get(userId) || [], cycleStart, cycleEnd)
+                const expiryDate = resolveExpiryDate(attrs);
+
+                // Skip expired memberships; remaining===0 is kept.
+                const expired = expiryDate ? new Date(expiryDate).getTime() <= NOW_MS : false;
+                if (expired) {
+                    allSkipped.push({ id: item.id, reason: 'expired', expiry_date: expiryDate });
+                    continue;
+                }
+
+                const commitmentLength = attrs.commitment_length ?? 0;
+                const renewalCount = attrs.renewal_count ?? 0;
+                const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
+
+                batchReady.push({
+                    user_email: email,
+                    id: item.id,
+                    name: attrs.membership_name,
+                    start_date: attrs.start_date || attrs.calculated_start_datetime,
+                    expiry_date: expiryDate,
+                    is_expired: false,
+                    membership_status: attrs.status,
+                    type: 'membership',
+                    current_cycle_end_date: cycleEndRaw || null,
+                    session_usage_percentage: usage.pct,
+                    session_remaining: usage.remaining,
+                    total_sessions_included: usage.total,
+                    has_additional_package_purchase: hasPkg,
+                    is_rolling_contract: isRollingContract,
+                });
+            }
+            allReadyRecords.push(...batchReady);
+
+            console.log(`  ✅ Batch ${batchIndex} done: ${batchMemberships.length} memberships → ${batchReady.length} ready (total ${allReadyRecords.length})`);
+
+            page = batchEndPage + 1;
+
+            // Cooldown before the next batch (skip on the last one)
+            if (page <= totalPages) {
+                console.log(`  ⏳ Cooling down ${COOLDOWN_MS}ms before next batch ...`);
+                await new Promise((r) => setTimeout(r, COOLDOWN_MS));
+            }
         }
-        if (page < totalPages) await new Promise((r) => setTimeout(r, PAGE_THROTTLE_MS));
-        page++;
-    } while (page <= totalPages);
-    console.log(`  ✅ Fetched ${memberships.length} active memberships, ${includedTxById.size} current_transactions`);
 
-    // Stage 2: collect unique user_ids, prefetch credit_transactions in parallel
-    console.log('\n🚀 Stage 2/4: Prefetch credit_transactions per user');
-    const uniqueUserIds = [...new Set(
-        memberships.map((m) => m.relationships?.user?.data?.id).filter(Boolean),
-    )];
-    console.log(`  ${uniqueUserIds.length} unique user(s) to query`);
-
-    // One request per user, run in parallel; fall back to [] on failure
-    const packageDatesByUser = new Map();
-    let done = 0;
-    const total = uniqueUserIds.length;
-    console.log(`  Launching ${total} parallel credit_transactions requests ...`);
-    const tStage2 = Date.now();
-
-    const tasks = uniqueUserIds.map(async (uid) => {
-        let dates = [];
-        try {
-            dates = await fetchUserPackagePurchaseDates(uid);
-        } catch (e) {
-            console.warn(`  ⚠️ Credit transactions fetch failed for User ${uid}: ${e.message}`);
-        }
-        packageDatesByUser.set(uid, dates);
-        done++;
-        if (done % 10 === 0 || done === total) {
-            const pct = Math.round((done / total) * 100);
-            console.log(`  [Stage 2] ${done}/${total} (${pct}%) done`);
-        }
-    });
-    await Promise.all(tasks);
-    console.log(`  ✅ All ${total} users done in ${Date.now() - tStage2}ms`);
-
-    // Stage 3: serialize records — no in-loop awaits
-    console.log('\n🚀 Stage 3/4: Serialize + match email + derive fields');
-    const readyRecords = [];
-    const failedRecords = [];
-    const skipped = [];
-
-    for (const item of memberships) {
-        const userId = item.relationships?.user?.data?.id;
-        const email = customerMap[userId];
-        const attrs = item.attributes;
-
-        if (!email) {
-            failedRecords.push({
-                reason: 'email_not_matched',
-                user_id: userId,
-                membership_instance_id: item.id,
-                membership_name: attrs.membership_name,
-            });
-            continue;
-        }
-
-        const txId = item.relationships?.current_membership_transaction?.data?.id;
-        const tx = includedTxById.get(txId) || {};
-        const cycleStartRaw = tx.payment_interval_start_date || attrs.payment_interval_start_date;
-        const cycleEndRaw = tx.payment_interval_end_date || attrs.payment_interval_end_date;
-        const cycleStart = safeDate(cycleStartRaw);
-        const cycleEnd = safeDate(cycleEndRaw);
-        const usage = computeSessionUsage(attrs, tx);
-        const hasPkg = hasPurchaseInCycle(packageDatesByUser.get(userId) || [], cycleStart, cycleEnd);
-        const expiryDate = resolveExpiryDate(attrs);
-
-        // Skip records that are already expired — these should be removed
-        // from Klaviyo rather than re-upserted. remaining===0 memberships
-        // are still kept (user may still have access).
-        const expired = expiryDate ? new Date(expiryDate).getTime() <= NOW_MS : false;
-        if (expired) {
-            skipped.push({
-                id: item.id,
-                reason: 'expired',
-                expiry_date: expiryDate,
-            });
-            continue;
-        }
-
-        const commitmentLength = attrs.commitment_length ?? 0;
-        const renewalCount = attrs.renewal_count ?? 0;
-        const isRollingContract = commitmentLength === 0 || renewalCount > commitmentLength;
-
-        readyRecords.push({
-            user_email: email,
-            id: item.id,
-            name: attrs.membership_name,
-            start_date: attrs.start_date || attrs.calculated_start_datetime,
-            expiry_date: expiryDate,
-            is_expired: false,
-            membership_status: attrs.status,
-            type: 'membership',
-            current_cycle_end_date: cycleEndRaw || null,
-            session_usage_percentage: usage.pct,
-            session_remaining: usage.remaining,
-            total_sessions_included: usage.total,
-            has_additional_package_purchase: hasPkg,
-            is_rolling_contract: isRollingContract,
-        });
+        // Persist the full result once, after all batches are processed
+        fs.writeFileSync(READY_FILE, JSON.stringify(allReadyRecords, null, 2), 'utf-8');
+        fs.writeFileSync(FAILED_FILE, JSON.stringify(allFailedRecords, null, 2), 'utf-8');
+        console.log(`\n  ✅ Phase 1 complete: ${allReadyRecords.length} ready → ${READY_FILE}`);
+        console.log(`  ✅ failed: ${allFailedRecords.length} → ${FAILED_FILE}`);
+    } else {
+        console.log('\n🚀 --sync-only: skipping Phase 1, will sync from existing ready_records.json');
     }
 
-    // Stage 4: persist to disk + sync to Klaviyo
-    console.log('\n🚀 Stage 4/4: Persist + sync to Klaviyo');
-    fs.writeFileSync(READY_FILE, JSON.stringify(readyRecords, null, 2), 'utf-8');
-    fs.writeFileSync(FAILED_FILE, JSON.stringify(failedRecords, null, 2), 'utf-8');
-    console.log(`  ✅ ready: ${readyRecords.length} → ${READY_FILE}`);
-    console.log(`  ✅ failed: ${failedRecords.length} → ${FAILED_FILE}`);
-
+    // ===== Phase 2: read ready_records.json and sync to Klaviyo in batches =====
+    console.log('\n🚀 Phase 2: Sync to Klaviyo');
     let klaviyoSynced = 0;
     try {
-        klaviyoSynced = await syncToKlaviyo(readyRecords);
+        const recordsToSync = JSON.parse(fs.readFileSync(READY_FILE, 'utf-8'));
+        if (!Array.isArray(recordsToSync)) throw new Error(`${READY_FILE} is not a JSON array`);
+        console.log(`  ${recordsToSync.length} record(s) to sync from ${READY_FILE}`);
+        klaviyoSynced = await syncToKlaviyo(recordsToSync);
     } catch (err) {
         console.error('  ❌ Klaviyo sync failed:', err.message);
-        // Keep ready_records.json on disk for a manual retry.
     }
 
-    const unmatched = failedRecords.filter((f) => f.reason === 'email_not_matched').length;
-    const skippedExpired = skipped.filter((s) => s.reason === 'expired').length;
-    const skippedEmpty = skipped.filter((s) => s.reason === 'no_sessions_remaining').length;
+    // --- Final summary ---
+    const unmatched = allFailedRecords.filter((f) => f.reason === 'email_not_matched').length;
+    const skippedExpired = allSkipped.filter((s) => s.reason === 'expired').length;
 
     console.log('\n================ Summary ================');
-    console.log(`MT active total       : ${memberships.length}`);
-    console.log(`Matched emails        : ${readyRecords.length}`);
-    console.log(`Unmatched emails      : ${unmatched}`);
-    console.log(`Skipped (expired)     : ${skippedExpired}`);
-    console.log(`Skipped (remaining=0) : ${skippedEmpty}`);
-    console.log(`Unique users          : ${uniqueUserIds.length}`);
+    if (!syncOnly) {
+        console.log(`MT active total       : ${totalMemberships}`);
+        console.log(`Batches processed     : ${batchIndex}`);
+        console.log(`Matched emails        : ${allReadyRecords.length}`);
+        console.log(`Unmatched emails      : ${unmatched}`);
+        console.log(`Skipped (expired)     : ${skippedExpired}`);
+    }
     console.log(`Klaviyo upserted      : ${klaviyoSynced}`);
     console.log(`Klaviyo ready file    : ${READY_FILE}`);
     console.log(`Failed records file   : ${FAILED_FILE}`);

@@ -24,7 +24,7 @@
                   "is_rolling_contract": true
                 },
                 "relationships": {
-                  "Email": [
+                  "email": [
                     {
                       "id": "example-unique-id-12345",
                       "email": "example1@example.com"

@@ -27,6 +27,9 @@ const FAILED_FILE = path.join(__dirname, 'failed_packages.json');
 
 const PAGE_SIZE = 200;           // MT API per_page hard limit for credit_transactions
 const PAGE_THROTTLE_MS = 200;
+const PAGES_PER_COOLDOWN = 5;    // process this many pages per batch
+const COOLDOWN_MS = 3000;        // cooldown length between batches
+const USER_CONCURRENCY = 10;     // /users/{id} fallback parallelism
 const MAX_FETCH_RETRIES = 4;     // network / 5xx retries with backoff
 const NOW_MS = Date.now();        // fixed "now" for consistency within a single run
 
@@ -51,11 +54,41 @@ function buildKlaviyoRecords(readyRecords) {
             record: {
                 object_record,
                 relationships: {
-                    Email: [{ id: user_email, email: user_email }],
+                    email: [{ id: user_email, email: user_email }],
                 },
             },
         },
     }));
+}
+
+// POST to Klaviyo with 429 backoff. On 429 it reads "Expected available in
+// N seconds" (or Retry-After header) and waits that long + buffer before
+// retrying. Other errors are thrown immediately.
+async function klaviyoPost(url, payload) {
+    const max429Retries = 10;
+    let attempt = 0;
+    while (true) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: KLAVIYO_HEADERS,
+            body: JSON.stringify(payload),
+        });
+        if (res.ok) return res;
+        const body = await res.text().catch(() => '');
+        if (res.status === 429 && attempt < max429Retries) {
+            const retryAfter = res.headers.get('retry-after');
+            const match = body.match(/Expected available in (\d+) seconds/i);
+            const waitSec = retryAfter
+                ? parseInt(retryAfter, 10)
+                : (match ? parseInt(match[1], 10) : 10);
+            const waitMs = (waitSec + 2) * 1000;  // +2s buffer
+            attempt++;
+            console.warn(`  ⏳ Klaviyo 429 throttled, waiting ${waitSec + 2}s before retry (attempt ${attempt}/${max429Retries})`);
+            await new Promise((r) => setTimeout(r, waitMs));
+            continue;
+        }
+        throw new Error(`Klaviyo bulk-create [${res.status}]: ${body.slice(0, 400)}`);
+    }
 }
 
 async function syncToKlaviyo(readyRecords) {
@@ -78,19 +111,12 @@ async function syncToKlaviyo(readyRecords) {
                 },
             },
         };
-        const res = await fetch(`${KLAVIYO_BASE_URL}/data-source-record-bulk-create-jobs`, {
-            method: 'POST',
-            headers: KLAVIYO_HEADERS,
-            body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-            const body = await res.text().catch(() => '');
-            throw new Error(`Klaviyo bulk-create [${res.status}]: ${body.slice(0, 400)}`);
-        }
+        const res = await klaviyoPost(`${KLAVIYO_BASE_URL}/data-source-record-bulk-create-jobs`, payload);
+        // klaviyoPost throws on non-429 errors; reaching here means success.
         synced += batch.length;
         console.log(`  ✅ Klaviyo upserted ${synced}/${records.length}`);
         if (i + KLAVIYO_BATCH_SIZE < records.length) {
-            await new Promise((r) => setTimeout(r, 200));
+            await new Promise((r) => setTimeout(r, 500));
         }
     }
     return synced;
@@ -105,15 +131,46 @@ function canonicalizeQuery(queryPath) {
     return rest ? `${normalizedPath}?${rest}` : normalizedPath;
 }
 
+// Global throttle: when ANY worker gets a 429, all MT fetches pause until
+// this timestamp. Prevents an avalanche of parallel retries from keeping
+// the rate-limit window permanently open (which makes MT's penalty grow
+// exponentially: 2s → 8s → 16s → 32s → ...).
+let mtThrottleUntil = 0;
+async function waitForMtThrottle() {
+    const now = Date.now();
+    if (now < mtThrottleUntil) {
+        await new Promise((r) => setTimeout(r, mtThrottleUntil - now));
+    }
+}
+
 async function mtFetch(queryPath) {
     const url = `${BASE_URL}${canonicalizeQuery(queryPath)}`;
     let attempt = 0;
     while (true) {
+        // Respect any active global throttle before sending
+        await waitForMtThrottle();
         try {
             const res = await fetch(url, { headers: MT_HEADERS });
             if (res.ok) return res.json();
             const detail = await res.text().catch(() => '(no response body)');
-            // 5xx are transient → retry; 4xx are client errors → fail fast
+
+            // 429 throttled — wait the hinted duration and retry.
+            // Does NOT consume MAX_FETCH_RETRIES budget. Sets the global
+            // throttle so all concurrent workers pause together.
+            if (res.status === 429) {
+                const retryAfter = res.headers.get('retry-after');
+                const match = detail.match(/Expected available in (\d+) seconds/i);
+                const waitSec = retryAfter
+                    ? parseInt(retryAfter, 10)
+                    : (match ? parseInt(match[1], 10) : 60);
+                const waitMs = (waitSec + 5) * 1000;  // +5s buffer
+                mtThrottleUntil = Date.now() + waitMs;
+                console.warn(`  ⏳ 429 throttled, ALL workers pausing ${waitSec + 5}s (until ${new Date(mtThrottleUntil).toLocaleTimeString()}) — ${url}`);
+                await waitForMtThrottle();
+                continue;
+            }
+
+            // 5xx are transient → retry; other 4xx are client errors → fail fast
             if (res.status >= 500 && attempt < MAX_FETCH_RETRIES) throw new Error(`HTTP ${res.status}`);
             throw new Error(`MT API [${res.status}] ${url}: ${detail.slice(0, 300)}`);
         } catch (e) {
@@ -124,19 +181,6 @@ async function mtFetch(queryPath) {
             await new Promise((r) => setTimeout(r, wait));
         }
     }
-}
-
-async function* paginateAll(baseQuery) {
-    let page = 1;
-    let totalPages = 1;
-    do {
-        const sep = baseQuery.includes('?') ? '&' : '?';
-        const json = await mtFetch(`${baseQuery}${sep}page=${page}`);
-        totalPages = json.meta?.pagination?.pages ?? totalPages;
-        yield { page, totalPages, items: json.data || [] };
-        page++;
-        if (page <= totalPages) await new Promise((r) => setTimeout(r, PAGE_THROTTLE_MS));
-    } while (page <= totalPages);
 }
 
 // ================= CSV → email map =================
@@ -229,108 +273,24 @@ function computePackageUsage(attrs) {
 }
 
 // ================= Main pipeline =================
+// Process credit_transactions in batches of PAGES_PER_COOLDOWN pages. Each
+// batch runs the FULL loop (fetch pages → serialize + match email → MT
+// /users/{id} fallback for misses → sync to Klaviyo) before the next batch,
+// with a cooldown in between. Already-synced batches persist on disk and in
+// Klaviyo even if a later batch fails.
 async function fetchAndSyncActivePackages() {
     const customerMap = await loadOrGeneratePackageEmailMap();
+    const listBase = `/credit_transactions?page_size=${PAGE_SIZE}&active=true`;
 
-    // Stage 1: fetch every active credit_transaction, keep only package roots
-    // (parent_credit_transaction === null), i.e. exclude per-session deduction rows.
-    console.log('\n🚀 Stage 1/3: Fetch active credit_transactions');
-    const packages = [];
-    let scanned = 0;
-    for await (const { page, totalPages, items } of paginateAll(
-        `/credit_transactions?page_size=${PAGE_SIZE}&active=true`,
-    )) {
-        const roots = items.filter((t) => t.relationships?.parent_credit_transaction?.data === null);
-        scanned += items.length;
-        packages.push(...roots);
-        console.log(`  [Stage 1] Page ${page}/${totalPages}: ${items.length} rows → ${roots.length} packages (total ${packages.length})`);
-    }
-    console.log(`  ✅ Scanned ${scanned} active rows, kept ${packages.length} package roots`);
-
-    // Stage 2a: serialize + match email from CSV; collect unmatched user_ids
-    console.log('\n🚀 Stage 2/3: Serialize + match email + derive fields');
-    const readyRecords = [];
-    const failedRecords = [];
-    const skipped = [];
-    const unmatchedUsers = new Map();  // userId → array of package items needing email
-
-    for (const item of packages) {
+    // Build a ready record from a package (parent credit_transaction).
+    // Returns null for expired packages so the caller can skip them.
+    function buildPackageRecord(item, email) {
         const attrs = item.attributes;
-        const userId = item.relationships?.user?.data?.id;
-        const email = customerMap[userId];
-
-        if (!email) {
-            if (userId) {
-                // Queue for MT API fallback lookup
-                if (!unmatchedUsers.has(userId)) unmatchedUsers.set(userId, []);
-                unmatchedUsers.get(userId).push(item);
-            } else {
-                failedRecords.push({
-                    reason: 'user_not_found',
-                    user_id: null,
-                    credit_transaction_id: item.id,
-                    credit_name: attrs.credit_name,
-                });
-            }
-            continue;
-        }
-        tryBuildReady(item, email);
-    }
-
-    // Stage 2b: bulk-fetch emails via MT /users/{id} for unmatched users
-    if (unmatchedUsers.size > 0) {
-        console.log(`  🔧 CSV missed ${unmatchedUsers.size} user(s), fetching from MT /users/{id}...`);
-        const uniqueIds = [...unmatchedUsers.keys()];
-        const fetched = await Promise.all(uniqueIds.map(async (uid) => {
-            try {
-                const r = await mtFetch(`/users/${uid}`);
-                const email = r?.data?.attributes?.email?.toLowerCase();
-                if (email?.includes('@')) return [uid, email];
-                return [uid, null];
-            } catch (e) {
-                console.warn(`  ⚠️ MT /users/${uid} failed: ${e.message}`);
-                return [uid, null];
-            }
-        }));
-        const fetchedMap = new Map(fetched);
-        for (const [uid, items] of unmatchedUsers) {
-            const email = fetchedMap.get(uid);
-            if (email) {
-                for (const item of items) tryBuildReady(item, email);
-            } else {
-                for (const item of items) {
-                    const attrs = item.attributes;
-                    failedRecords.push({
-                        reason: 'email_not_matched',
-                        user_id: uid,
-                        credit_transaction_id: item.id,
-                        credit_name: attrs.credit_name,
-                    });
-                }
-            }
-        }
-        console.log(`  ✅ MT fallback resolved ${[...fetchedMap.values()].filter(Boolean).length}/${unmatchedUsers.size}`);
-    }
-
-    function tryBuildReady(item, email) {
-        const attrs = item.attributes;
-
         const usage = computePackageUsage(attrs);
         const expiry = attrs.expiration_datetime ?? null;
-
-        // Skip records that are already expired — these should be removed
-        // from Klaviyo rather than re-upserted. remaining===0 with a future
-        // expiry is still kept.
         const expired = expiry ? new Date(expiry).getTime() <= NOW_MS : false;
-        if (expired) {
-            skipped.push({
-                id: item.id,
-                reason: 'expired',
-                expiry_date: expiry,
-            });
-        }
-
-        readyRecords.push({
+        if (expired) return null;
+        return {
             user_email: email,
             id: item.id,
             name: attrs.credit_name,
@@ -345,35 +305,152 @@ async function fetchAndSyncActivePackages() {
             total_sessions_included: usage.total,
             has_additional_package_purchase: false,
             is_rolling_contract: false,
-        });
+        };
     }
 
-    // Stage 3: persist to disk + sync to Klaviyo
-    console.log('\n🚀 Stage 3/3: Persist + sync to Klaviyo');
-    fs.writeFileSync(READY_FILE, JSON.stringify(readyRecords, null, 2), 'utf-8');
-    fs.writeFileSync(FAILED_FILE, JSON.stringify(failedRecords, null, 2), 'utf-8');
-    console.log(`  ✅ ready: ${readyRecords.length} → ${READY_FILE}`);
-    console.log(`  ✅ failed: ${failedRecords.length} → ${FAILED_FILE}`);
-
+    // Accumulators across all batches
+    const allReadyRecords = [];
+    const allFailedRecords = [];
+    const allSkipped = [];
+    let totalScanned = 0;
+    let totalPackages = 0;
+    let totalPages = 1;
     let klaviyoSynced = 0;
-    try {
-        klaviyoSynced = await syncToKlaviyo(readyRecords);
-    } catch (err) {
-        console.error('  ❌ Klaviyo sync failed:', err.message);
-        // Keep ready_packages.json on disk for a manual retry.
+    let batchIndex = 0;
+
+    let page = 1;
+    while (page <= totalPages) {
+        batchIndex++;
+        let batchEndPage = Math.min(page + PAGES_PER_COOLDOWN - 1, totalPages);
+        console.log(`\n🚀 Batch ${batchIndex}: pages ${page}-${batchEndPage}${totalPages > 1 ? ` of ${totalPages}` : ''}`);
+
+        // --- 1. Fetch this batch's credit_transaction pages (keep roots only) ---
+        const batchPackages = [];
+        let batchScanned = 0;
+        for (let p = page; p <= batchEndPage; p++) {
+            const sep = listBase.includes('?') ? '&' : '?';
+            const json = await mtFetch(`${listBase}${sep}page=${p}`);
+            if (p === page) {
+                totalPages = json.meta?.pagination?.pages ?? totalPages;
+                batchEndPage = Math.min(page + PAGES_PER_COOLDOWN - 1, totalPages);
+            }
+            const items = json.data || [];
+            const roots = items.filter((t) => t.relationships?.parent_credit_transaction?.data === null);
+            batchScanned += items.length;
+            batchPackages.push(...roots);
+            console.log(`  [fetch] Page ${p}/${totalPages}: ${items.length} rows → ${roots.length} packages`);
+            if (p < batchEndPage) await new Promise((r) => setTimeout(r, PAGE_THROTTLE_MS));
+        }
+        totalScanned += batchScanned;
+        totalPackages += batchPackages.length;
+
+        // --- 2. Serialize + match email from CSV; collect unmatched ---
+        const batchReady = [];
+        const unmatchedUsers = new Map();  // userId → array of package items
+        for (const item of batchPackages) {
+            const attrs = item.attributes;
+            const userId = item.relationships?.user?.data?.id;
+            const email = customerMap[userId];
+
+            if (!email) {
+                if (userId) {
+                    if (!unmatchedUsers.has(userId)) unmatchedUsers.set(userId, []);
+                    unmatchedUsers.get(userId).push(item);
+                } else {
+                    allFailedRecords.push({
+                        reason: 'user_not_found',
+                        user_id: null,
+                        credit_transaction_id: item.id,
+                        credit_name: attrs.credit_name,
+                    });
+                }
+                continue;
+            }
+            const rec = buildPackageRecord(item, email);
+            if (rec) batchReady.push(rec);
+            else allSkipped.push({ id: item.id, reason: 'expired', expiry_date: attrs.expiration_datetime ?? null });
+        }
+
+        // --- 3. MT /users/{id} fallback for unmatched users (bounded concurrency) ---
+        if (unmatchedUsers.size > 0) {
+            console.log(`  🔧 CSV missed ${unmatchedUsers.size} user(s), fetching from MT /users/{id}...`);
+            const uniqueIds = [...unmatchedUsers.keys()];
+            const fetchedMap = new Map();
+            const queue = [...uniqueIds];
+            const workers = Math.min(USER_CONCURRENCY, queue.length);
+            const workerFns = Array.from({ length: workers }, async () => {
+                while (queue.length > 0) {
+                    const uid = queue.shift();
+                    try {
+                        const r = await mtFetch(`/users/${uid}`);
+                        const email = r?.data?.attributes?.email?.toLowerCase();
+                        fetchedMap.set(uid, email?.includes('@') ? email : null);
+                    } catch (e) {
+                        console.warn(`    ⚠️ MT /users/${uid} failed: ${e.message}`);
+                        fetchedMap.set(uid, null);
+                    }
+                }
+            });
+            await Promise.all(workerFns);
+
+            let resolved = 0;
+            for (const [uid, items] of unmatchedUsers) {
+                const email = fetchedMap.get(uid);
+                if (email) {
+                    resolved++;
+                    for (const item of items) {
+                        const rec = buildPackageRecord(item, email);
+                        if (rec) batchReady.push(rec);
+                        else allSkipped.push({ id: item.id, reason: 'expired', expiry_date: item.attributes.expiration_datetime ?? null });
+                    }
+                } else {
+                    for (const item of items) {
+                        allFailedRecords.push({
+                            reason: 'email_not_matched',
+                            user_id: uid,
+                            credit_transaction_id: item.id,
+                            credit_name: item.attributes.credit_name,
+                        });
+                    }
+                }
+            }
+            console.log(`  ✅ MT fallback resolved ${resolved}/${unmatchedUsers.size}`);
+        }
+        allReadyRecords.push(...batchReady);
+
+        // --- 4. Persist incrementally + sync this batch to Klaviyo ---
+        fs.writeFileSync(READY_FILE, JSON.stringify(allReadyRecords, null, 2), 'utf-8');
+        fs.writeFileSync(FAILED_FILE, JSON.stringify(allFailedRecords, null, 2), 'utf-8');
+
+        if (batchReady.length > 0) {
+            try {
+                klaviyoSynced += await syncToKlaviyo(batchReady);
+            } catch (err) {
+                console.error(`  ❌ Batch ${batchIndex} Klaviyo sync failed: ${err.message}`);
+            }
+        }
+        console.log(`  ✅ Batch ${batchIndex} done: scanned ${batchScanned}, ${batchPackages.length} packages → ${batchReady.length} ready (synced ${klaviyoSynced} total)`);
+
+        page = batchEndPage + 1;
+
+        // Cooldown before the next batch (skip on the last one)
+        if (page <= totalPages) {
+            console.log(`  ⏳ Cooling down ${COOLDOWN_MS}ms before next batch ...`);
+            await new Promise((r) => setTimeout(r, COOLDOWN_MS));
+        }
     }
 
-    const unmatched = failedRecords.filter((f) => f.reason === 'email_not_matched').length;
-    const skippedExpired = skipped.filter((s) => s.reason === 'expired').length;
-    const skippedEmpty = skipped.filter((s) => s.reason === 'no_sessions_remaining').length;
+    // --- Final summary ---
+    const unmatched = allFailedRecords.filter((f) => f.reason === 'email_not_matched').length;
+    const skippedExpired = allSkipped.filter((s) => s.reason === 'expired').length;
 
     console.log('\n================ Summary ================');
-    console.log(`Active rows scanned   : ${scanned}`);
-    console.log(`Package roots         : ${packages.length}`);
-    console.log(`Matched emails        : ${readyRecords.length}`);
+    console.log(`Active rows scanned   : ${totalScanned}`);
+    console.log(`Package roots         : ${totalPackages}`);
+    console.log(`Batches processed     : ${batchIndex}`);
+    console.log(`Matched emails        : ${allReadyRecords.length}`);
     console.log(`Unmatched emails      : ${unmatched}`);
     console.log(`Skipped (expired)     : ${skippedExpired}`);
-    console.log(`Skipped (remaining=0) : ${skippedEmpty}`);
     console.log(`Klaviyo upserted      : ${klaviyoSynced}`);
     console.log(`Klaviyo ready file    : ${READY_FILE}`);
     console.log(`Failed records file   : ${FAILED_FILE}`);
