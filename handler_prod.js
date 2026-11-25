@@ -30,7 +30,7 @@ export default async (req, res) => {
             dt: Math.floor(Date.now() / 1000)
         }
 
-        // Send to BetterStack
+        // Send to BetterStack 
         const ingestingHost = process.env["BETTERSTACK_HOST"];
         const sourceToken = process.env["BETTERSTACK_TOKEN"];
 
@@ -1224,6 +1224,7 @@ async function createAndUpdateMemberhipOrPackageRecordsLegacy(
                     endDate: attributes.end_date ? new Date(attributes.end_date) : null,
                     email: user_email,
                 }
+
             }
         })) || [];
 
@@ -1281,7 +1282,7 @@ async function createAndUpdateMemberhipOrPackageRecordsLegacy(
 
         const res = await fetch('https://a.klaviyo.com/api/data-source-record-bulk-create-jobs', options);
 
-        const status = res.status;
+        const status = await res.status;
 
         if (status !== 204) {
             console.error("Failed to update data source (legacy)", await res.json());
